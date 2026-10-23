@@ -24,7 +24,7 @@ export class FragmentReader {
 			view.byteLength - 7,
 		);
 		if (
-			kind > 3 ||
+			kind > 4 ||
 			!total ||
 			total > MAX_FRAGMENT_BYTES ||
 			offset + bytes.length > total
@@ -50,6 +50,25 @@ export class FragmentReader {
 		this.frames.delete(kind);
 		return { kind, bytes: frame.bytes };
 	}
+}
+export function unpackWave(bytes) {
+	if (bytes.length < 4) throw Error("Bluetooth波形データが不正です");
+	const size = bytes[0] | (bytes[1] << 8), out = new Uint8Array(size);
+	if (size < 32) throw Error("Bluetooth波形データが不正です");
+	let offset = 2, written = 0;
+	while (offset < bytes.length) {
+		const token = bytes[offset++], repeat = token >= 128,
+			count = repeat ? token - 128 + 3 : token + 1,
+			length = repeat ? 1 : count;
+		if (written + count > size || offset + length > bytes.length)
+			throw Error("Bluetooth波形データが不正です");
+		if (repeat) out.fill(bytes[offset], written, written + count);
+		else out.set(bytes.subarray(offset, offset + count), written);
+		offset += length;
+		written += count;
+	}
+	if (written !== size) throw Error("Bluetooth波形データが不正です");
+	return out;
 }
 export function decodeBleState(bytes, patterns) {
 	const v = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
@@ -250,7 +269,10 @@ export class BleTransport {
 		if (info?.version !== 2 || typeof info.web !== "boolean" || !Array.isArray(info.clients)) return;
 		const client = info.clients.find((c) => c.session === this.session) || null;
 		if (client && ["control", "wave", "first"].some((key) => typeof client[key] !== "boolean")) return;
-		if (!!client?.wave !== !!this.client?.wave) this.reader.frames.delete(1);
+		if (!!client?.wave !== !!this.client?.wave) {
+			this.reader.frames.delete(1);
+			this.reader.frames.delete(4);
+		}
 		this.client = client;
 		this.web = info.web;
 		this.onMembership?.(client);
@@ -272,8 +294,9 @@ export class BleTransport {
 			if (frame.kind === 0) {
 				this.state = decodeBleState(frame.bytes, this.patterns);
 				this.stateAt = performance.now();
-			} else if (frame.kind === 1) {
-				if (this.client?.wave) this.onWave?.(frame.bytes.buffer);
+			} else if (frame.kind === 1 || frame.kind === 4) {
+				if (this.client?.wave) this.onWave?.(
+					frame.kind === 4 ? unpackWave(frame.bytes).buffer : frame.bytes.buffer);
 				++this.rx.waves;
 			}
 			else if (frame.kind === 3) {
