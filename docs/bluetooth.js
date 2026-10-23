@@ -24,7 +24,7 @@ export class FragmentReader {
 			view.byteLength - 7,
 		);
 		if (
-			kind > 2 ||
+			kind > 3 ||
 			!total ||
 			total > MAX_FRAGMENT_BYTES ||
 			offset + bytes.length > total
@@ -105,9 +105,8 @@ export function decodeBleState(bytes, patterns) {
 	].forEach((key, i) => (s[key] = v.getUint32(48 + i * 4, true)));
 	return s;
 }
-export async function readBlePatterns(meta, command) {
-	let page = JSON.parse(decoder.decode(await meta.readValue()));
-	// Older firmware exposes its complete list in one read.
+export async function readBlePatterns(meta, command, run = (fn) => fn()) {
+	let page = await run(async () => JSON.parse(decoder.decode(await meta.readValue())));
 	if (Array.isArray(page)) {
 		if (!page.length) throw Error("パターン情報が不正です");
 		return page;
@@ -117,10 +116,11 @@ export async function readBlePatterns(meta, command) {
 		throw Error("パターン情報が不正です");
 	const patterns = [];
 	for (let index = 0; index < total; ++index) {
-		// A retry on an already connected device may start at a previous page.
 		if (index !== 0 || page.pattern?.id !== 0) {
-			await command.writeValueWithResponse(new Uint8Array([0x50, index & 255, index >> 8]));
-			page = JSON.parse(decoder.decode(await meta.readValue()));
+			page = await run(async () => {
+				await command.writeValueWithResponse(new Uint8Array([0x50, index & 255, index >> 8]));
+				return JSON.parse(decoder.decode(await meta.readValue()));
+			});
 		}
 		if (page?.version !== 1 || page.total !== total || page.pattern?.id !== index ||
 			typeof page.pattern.name !== "string" || !page.pattern.name.length)
@@ -131,7 +131,15 @@ export async function readBlePatterns(meta, command) {
 }
 
 export class BleTransport {
-	constructor() {
+	constructor(session = crypto.randomUUID()) {
+		this.session = session;
+		this.client = null;
+		this.web = false;
+		this.everJoined = false;
+		this.joined = false;
+		this.onMembership = null;
+		this.onJoin = null;
+		this.gattQueue = Promise.resolve();
 		this.device = null;
 		this.command = null;
 		this.state = null;
@@ -164,7 +172,7 @@ export class BleTransport {
 	}
 	async connectDevice() {
 		if (!navigator.bluetooth)
-			throw Error("Bluetooth対応のChromeで開いてください。");
+			throw Error("このブラウザはWeb Bluetoothに対応していません。Windows・Mac・Androidの対応ブラウザ（Chromeなど）で開いてください。");
 		if (!this.device) {
 			const granted = navigator.bluetooth.getDevices
 				? await navigator.bluetooth.getDevices()
@@ -190,7 +198,7 @@ export class BleTransport {
 			service = await server.getPrimaryService(BLE_UUID.service);
 		const command = await service.getCharacteristic(BLE_UUID.command);
 		const meta = await service.getCharacteristic(BLE_UUID.patterns);
-		this.patterns = await readBlePatterns(meta, command);
+		this.patterns = await readBlePatterns(meta, command, (fn) => this.runGatt(fn));
 		this.reader = new FragmentReader();
 		const stream = await service.getCharacteristic(BLE_UUID.stream);
 		if (this.stream)
@@ -203,6 +211,38 @@ export class BleTransport {
 		this.rx = { since: performance.now(), bytes: 0, waves: 0 };
 		await stream.startNotifications();
 		this.command = command;
+		const response = await this.fetch("/api/command", {
+			body: JSON.stringify({action: "join", value: this.everJoined}),
+		});
+		const result = await response.json();
+		if (!response.ok) {
+			this.closed = true;
+			throw Error(result.error === "full" ? "同時接続は3画面までです。" : "Dashboardとファームウェアを両方更新してください。");
+		}
+		this.everJoined = true;
+		this.joined = true;
+		this.updateMembership(result.membership);
+		if (!this.client) throw Error("接続情報を取得できませんでした。Dashboardとファームウェアを両方更新してください。");
+		this.onJoin?.(this.client);
+	}
+	updateMembership(info) {
+		if (info?.version !== 2 || typeof info.web !== "boolean" || !Array.isArray(info.clients)) return;
+		const client = info.clients.find((c) => c.session === this.session) || null;
+		if (client && ["control", "wave", "first"].some((key) => typeof client[key] !== "boolean")) return;
+		if (!!client?.wave !== !!this.client?.wave) this.reader.frames.delete(1);
+		this.client = client;
+		this.web = info.web;
+		this.onMembership?.(client);
+	}
+	// Web Locks serialize selector/read pairs across tabs sharing a GATT link.
+	// Each page releases the lock, so other tabs can still send heartbeats.
+	runGatt(fn) {
+		const run = () => globalThis.navigator?.locks?.request
+			? navigator.locks.request(`vvvf-gatt-${this.device?.id}`, fn)
+			: fn();
+		const result = this.gattQueue.catch(() => {}).then(run);
+		this.gattQueue = result;
+		return result;
 	}
 	receive(view) {
 		try {
@@ -212,13 +252,16 @@ export class BleTransport {
 				this.state = decodeBleState(frame.bytes, this.patterns);
 				this.stateAt = performance.now();
 			} else if (frame.kind === 1) {
-				this.onWave?.(frame.bytes.buffer);
+				if (this.client?.wave) this.onWave?.(frame.bytes.buffer);
 				++this.rx.waves;
 			}
-			else {
+			else if (frame.kind === 3) {
+				const info = JSON.parse(decoder.decode(frame.bytes));
+				if (this.joined) this.updateMembership(info);
+			} else {
 				const reply = JSON.parse(decoder.decode(frame.bytes)),
 					pending = this.pending.get(reply.request);
-				if (pending) {
+				if (pending && reply.session === this.session) {
 					clearTimeout(pending.timer);
 					this.pending.delete(reply.request);
 					pending.resolve(
@@ -250,6 +293,10 @@ export class BleTransport {
 		this.stream = null;
 		this.command = null;
 		this.state = null;
+		this.client = null;
+		this.web = false;
+		this.joined = false;
+		this.onMembership?.(null);
 		this.reader = new FragmentReader();
 		for (const p of this.pending.values()) {
 			clearTimeout(p.timer);
@@ -270,9 +317,10 @@ export class BleTransport {
 		if (!this.device?.gatt.connected || !this.command)
 			throw Error("Bluetooth接続待ち");
 		if (path === "/api/command") {
+			const characteristic = this.command;
 			const request = ++this.request,
 				body = encoder.encode(
-					JSON.stringify({ ...JSON.parse(options.body), request }),
+					JSON.stringify({ ...JSON.parse(options.body), session: this.session, request }),
 				);
 			return new Promise((resolve, reject) => {
 				const timer = setTimeout(() => {
@@ -282,7 +330,11 @@ export class BleTransport {
 				this.pending.set(request, { resolve, reject, timer });
 				// Application acknowledgement includes the request ID and policy result.
 				// Avoid Windows ATT response stalls during simultaneous notifications.
-				this.command.writeValueWithoutResponse(body).catch((e) => {
+				this.runGatt(() => {
+					if (this.command !== characteristic || !this.pending.has(request))
+						throw Error("Bluetoothの接続が途絶しました。");
+					return characteristic.writeValueWithoutResponse(body);
+				}).catch((e) => {
 					clearTimeout(timer);
 					this.pending.delete(request);
 					reject(e);
@@ -292,9 +344,9 @@ export class BleTransport {
 		if (path === "/api/patterns")
 			return new Response(JSON.stringify(this.patterns));
 		if (path === "/api/state") {
-			if (!this.state || performance.now() - this.stateAt > 1200)
+			if (!this.joined || !this.state || performance.now() - this.stateAt > 1200)
 				throw Error("状態更新待ち");
-			return new Response(JSON.stringify(this.state));
+			return new Response(JSON.stringify({...this.state, web: this.web}));
 		}
 		throw Error("通信経路が不正です");
 	}
@@ -302,10 +354,13 @@ export class BleTransport {
 		this.closed = true;
 		clearTimeout(this.reconnectTimer);
 		this.reconnectTimer = null;
-		if (this.device) {
-			const device = this.device;
-			this.device = null;
-			device.gatt.disconnect();
+		// A page is a logical client. Closing it must not disconnect another tab
+		// using the same underlying OS connection. Timeout covers a lost leave.
+		if (this.command && this.device?.gatt.connected) {
+			const bytes = encoder.encode(JSON.stringify({action: "leave", session: this.session}));
+			void this.command.writeValueWithoutResponse(bytes).catch(() => {});
 		}
+		this.device = null;
+		this.disconnected();
 	}
 }

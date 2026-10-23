@@ -9,6 +9,11 @@
 		<script type="module" src="favicon.js"></script>
 	</head>
 	<body>
+		<dialog id="wave-dialog" aria-labelledby="wave-question" aria-describedby="wave-description">
+			<p id="wave-question">波形を表示しますか？</p>
+			<p id="wave-description">波形は1つのデバイスにしか表示できません。</p>
+			<div><button id="wave-yes" autofocus>はい</button><button id="wave-no">いいえ</button></div>
+		</dialog>
 		<div id="stage">
 			<main id="console" class="stop">
 				<header>
@@ -21,6 +26,7 @@
 					>
 					<span id="connection" role="status">接続待ち</span
 					><button id="connect-device">Bluetooth接続</button>
+					<button id="toggle-wave" disabled>波形を表示</button>
 				</header>
 				<section
 					class="scope"

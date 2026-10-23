@@ -7,14 +7,13 @@ import {
 	STATE_PERIOD_MS,
 } from "./telemetry.js";
 import { BleTransport } from "./bluetooth.js";
-const bluetooth = new BleTransport();
-const $ = (id) => document.getElementById(id),
-	session = crypto.randomUUID();
+const session = crypto.randomUUID();
+const bluetooth = new BleTransport(session);
+const $ = (id) => document.getElementById(id);
 let state = null,
 	online = false,
 	owned = false,
 	epoch = 0,
-	acquiredAt = 0,
 	commandQueue = Promise.resolve(),
 	notchWanted = null,
 	notchInFlight = null,
@@ -36,6 +35,29 @@ function acceptWave(buffer) {
 	} catch {} // Discard invalid frames without clearing the last complete one.
 }
 bluetooth.onWave = acceptWave;
+const waveDialog = $("wave-dialog");
+bluetooth.onMembership = (client) => {
+	if (!client?.wave) {frame = null; waveDirty = true;}
+	if (!client && waveDialog.open) waveDialog.close();
+	const canControl = !!client?.control && bluetooth.web;
+	if (owned && !canControl) loseControl();
+	owned = canControl;
+	refreshControls();
+};
+bluetooth.onJoin = (client) => {
+	if (!client.first && !waveDialog.open) waveDialog.showModal();
+};
+async function setWave(show) {
+	try {await command("wave", show);}
+	catch (error) {message(error.message);}
+}
+$("wave-yes").addEventListener("click", () => {waveDialog.close(); void setWave(true);});
+$("wave-no").addEventListener("click", () => waveDialog.close());
+$("toggle-wave").addEventListener("click", () => void setWave(!bluetooth.client?.wave));
+// A bfcache restore is a fresh join; it must never replay the old notch.
+window.addEventListener("pageshow", (event) => {
+	if (event.persisted) {bluetooth.closed = false; void bluetooth.connect().catch((e) => message(e.message));}
+});
 let pulseFitKey = "";
 function fitPulseValue() {
 	const pulse = document.querySelector(".pulse"),
@@ -70,7 +92,8 @@ resizeLayout();
 const errors = {
 	offline: "ESP32との通信が途絶しました。再接続を試みています。",
 	moving: "パターンは停止中に変更できます。",
-	busy: "別の画面が操作中です。",
+	full: "同時接続は3画面までです。",
+	session: "接続情報が失われました。再接続します。",
 	owner: "操作権が解除されました。Web操作を開始してください。",
 	persistence: "パターンを保存できませんでした。",
 	notch: "ノッチが範囲外です。",
@@ -139,8 +162,10 @@ function command(action, value) {
 	return result;
 }
 function refreshControls() {
-	$("take-control").disabled = !online || owned || (!!state?.web && !owned);
-	$("release-control").disabled = !online || !owned;
+	$("take-control").disabled = !online || owned;
+	$("release-control").disabled = !online || !state?.web;
+	$("toggle-wave").disabled = !online;
+	$("toggle-wave").textContent = bluetooth.client?.wave ? "波形表示を終了" : "波形を表示";
 	$("mascon").disabled = !online || !owned;
 	if ($("mascon").disabled) endMasconDrag();
 	document
@@ -260,7 +285,7 @@ function render(s) {
 	$("needle").setAttribute("transform", `translate(${meterPosition} 0)`);
 	$("speed-fill").setAttribute("width", meterPosition);
 	buildScale(s.power_notches, s.brake_notches);
-	if (notchInFlight === s.mascon && !notchSending) notchInFlight = null;
+	if (!notchSending) notchInFlight = null;
 	if (!masconDrag && notchWanted === null && notchInFlight === null) {
 		$("mascon").value = s.mascon;
 		setNotchBadge(s.mascon);
@@ -275,7 +300,7 @@ function render(s) {
 	$("operation-note").textContent = owned
 		? "Web操作中：基板スイッチは無視します。"
 		: s.web
-			? "別の画面がWeb操作中です。"
+			? "Web操作開始で現在の運転に参加できます。"
 			: "基板操作中：Web操作開始でB" +
 				s.brake_notches +
 				"から操作します。";
@@ -318,8 +343,9 @@ async function pollState() {
 		online = true;
 		$("connection").textContent = "Bluetooth";
 		$("connection").className = "online";
-		if (owned && !s.web && performance.now() - acquiredAt > 350)
-			loseControl();
+		const canControl = !!bluetooth.client?.control && bluetooth.web;
+		if (owned && !canControl) loseControl();
+		owned = canControl;
 		render(s);
 		if (!patternsLoaded) await loadPatterns();
 	} catch {
@@ -439,10 +465,8 @@ window.addEventListener("blur", endMasconDrag);
 $("take-control").addEventListener("click", async () => {
 	try {
 		await command("acquire");
-		owned = true;
-		acquiredAt = performance.now();
-		$("mascon").value = -state.brake_notches;
-		setNotchBadge(-state.brake_notches);
+		// Membership and notch come from ESP32; joining an existing Web drive
+		// must not reset it to maximum braking.
 		message();
 		refreshControls();
 	} catch (e) {
@@ -460,6 +484,7 @@ $("release-control").addEventListener("click", async () => {
 });
 window.addEventListener("keydown", (e) => {
 	if (
+		waveDialog.open ||
 		!owned ||
 		["SELECT", "TEXTAREA"].includes(document.activeElement?.tagName)
 	)
@@ -477,13 +502,13 @@ window.addEventListener("keydown", (e) => {
 window.addEventListener("pagehide", () => bluetooth.close());
 let heartbeatPending = false;
 setInterval(async () => {
-	if (!owned || !online || heartbeatPending) return;
+	if (!online || heartbeatPending) return;
 	heartbeatPending = true;
 	try {
 		await command("heartbeat");
 	} catch (e) {
-		if (e.status === 403) loseControl();
-		else disconnected();
+		if (e.code === "session") bluetooth.disconnected();
+		disconnected();
 	} finally {
 		heartbeatPending = false;
 	}
@@ -491,12 +516,12 @@ setInterval(async () => {
 // A worker timer avoids the normal one-second background-tab timer clamp.
 const heartbeatWorker = new Worker("heartbeat.js");
 heartbeatWorker.onmessage = () => {
-	if (owned && online && !heartbeatPending) {
+	if (online && !heartbeatPending) {
 		heartbeatPending = true;
 		command("heartbeat")
 			.catch((e) => {
-				if (e.status === 403) loseControl();
-				else disconnected();
+				if (e.code === "session") bluetooth.disconnected();
+				disconnected();
 			})
 			.finally(() => (heartbeatPending = false));
 	}
