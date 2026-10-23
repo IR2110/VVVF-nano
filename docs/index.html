@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="ja">
+	<head>
+		<meta charset="utf-8" />
+		<meta name="viewport" content="width=device-width,initial-scale=1" />
+		<title>VVVF nano Dashboard</title>
+		<link rel="icon" type="image/png" href="assets/icon.png" />
+		<link rel="stylesheet" href="style.css" />
+		<script type="module" src="favicon.js"></script>
+	</head>
+	<body>
+		<div id="stage">
+			<main id="console" class="stop">
+				<header>
+					<img src="assets/logo.png" alt="VVVF nano" /><span
+						class="page-title"
+						>Dashboard</span
+					>
+					<span class="running"
+						>運転中：<strong id="running-pattern">—</strong></span
+					>
+					<span id="connection" role="status">接続待ち</span
+					><button id="connect-device">Bluetooth接続</button>
+				</header>
+				<section
+					class="scope"
+					aria-label="ゲートから生成した線間電圧波形"
+				>
+					<canvas id="scope"></canvas>
+				</section>
+				<section class="control-panel">
+					<div class="readouts">
+						<div id="state-badge" class="state-badge">停止</div>
+						<div class="metrics">
+							<span>基本波</span><strong id="frequency">—</strong
+							><span>変調率</span
+							><strong id="amplitude">—</strong>
+						</div>
+						<div class="pulse">
+							<span id="mode-badge">—</span
+							><strong id="pulse-value">—</strong
+							><small id="pulse-detail"></small>
+						</div>
+					</div>
+					<div class="lower-panel">
+						<div class="driver-desk">
+							<div class="mascon" aria-label="マスコン">
+								<div id="notch-scale" class="notch-scale"></div>
+								<input
+									id="mascon"
+									type="range"
+									min="-7"
+									max="5"
+									value="-7"
+									step="1"
+									aria-label="マスコン、上が回生、下が力行"
+									disabled
+								/>
+								<output id="notch-badge">B7</output>
+							</div>
+							<section class="speed-section" aria-label="速度計">
+								<div class="meter-heading">速度</div>
+								<div class="speed-number">
+									<span id="speed">0.0</span
+									><small>km/h</small>
+								</div>
+								<svg
+									id="speedometer"
+									viewBox="0 0 628 212"
+									role="img"
+									aria-label="0から160キロメートル毎時の速度計"
+								>
+									<defs>
+										<linearGradient
+											id="meter-face"
+											x2="0"
+											y2="1"
+										>
+											<stop
+												offset="0"
+												stop-color="#282828"
+											/>
+											<stop
+												offset="1"
+												stop-color="#1c1c1c"
+											/>
+										</linearGradient>
+									</defs>
+									<rect
+										x=".5"
+										y=".5"
+										width="627"
+										height="211"
+										fill="url(#meter-face)"
+										stroke="#808080"
+									/>
+									<rect
+										x="24"
+										y="140"
+										width="580"
+										height="24"
+										fill="#393939"
+									/>
+									<rect
+										id="speed-fill"
+										x="24"
+										y="140"
+										width="0"
+										height="3"
+										fill="#d8d8d8"
+									/>
+									<g id="speed-ticks"></g>
+									<g id="needle">
+										<path
+											d="M19 119 L29 119 L24 129 Z"
+											fill="#f08370"
+										/>
+										<line
+											x1="24"
+											y1="130"
+											x2="24"
+											y2="164"
+											stroke="#f08370"
+											stroke-width="2"
+										/>
+									</g>
+								</svg>
+								<p id="operation-note">
+									Bluetooth接続から「VVVF
+									nano」を選択してください。
+								</p>
+								<p class="keys">
+									↑ 回生側　↓ 力行側　Space 惰性
+								</p>
+								<p id="message" role="status"></p>
+							</section>
+							<div class="controller-label">マスコン</div>
+							<div class="operator-controls">
+								<button id="take-control" disabled>
+									Web操作開始</button
+								><button id="release-control" disabled>
+									基板操作へ戻す
+								</button>
+							</div>
+						</div>
+						<section class="patterns">
+							<label>パターン選択</label>
+							<div
+								id="pattern-list"
+								role="listbox"
+								aria-label="PWMパターン"
+							></div>
+							<p id="pattern-note">停止中に変更できます</p>
+						</section>
+					</div>
+				</section>
+			</main>
+		</div>
+		<script type="module" src="app.js"></script>
+	</body>
+</html>

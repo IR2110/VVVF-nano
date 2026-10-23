@@ -1,0 +1,875 @@
+@font-face {
+	font-family: "Source Han Sans";
+	src: url("assets/SourceHanSansJP-VF.otf.woff2") format("woff2");
+	font-weight: 100 900;
+	font-display: swap
+}
+
+@font-face {
+	font-family: ShinGo;
+	src: local("ShinGoPr6-Medium"), local("A-OTF Shin Go Pr6 M");
+	font-weight: 500
+}
+
+@font-face {
+	font-family: ShinGo;
+	src: local("ShinGoPr6-Bold"), local("A-OTF Shin Go Pr6 B");
+	font-weight: 700
+}
+
+@font-face {
+	font-family: ShinGo;
+	src: local("ShinGoPr6-Light"), local("A-OTF Shin Go Pr6 L");
+	font-weight: 300
+}
+
+:root {
+	font-family: ShinGo, "Source Han Sans", sans-serif;
+	font-weight: 500;
+	line-height: 1.2;
+	color: #393939;
+	background: #000;
+	color-scheme: light;
+	font-synthesis: none
+}
+
+* {
+	box-sizing: border-box
+}
+
+body {
+	margin: 0;
+	min-height: 100vh;
+	display: grid;
+	place-items: center
+}
+
+button,
+input {
+	font: inherit
+}
+
+button {
+	cursor: pointer
+}
+
+button:disabled {
+	cursor: default
+}
+
+#stage {
+	position: relative
+}
+
+main {
+	width: 1600px;
+	height: 900px;
+	position: absolute;
+	left: 0;
+	top: 0;
+	transform-origin: top left;
+	overflow: hidden;
+	--state: #393939;
+	--hatch: repeating-linear-gradient(135deg, #fff 0px, #fff 4px, #eee 4px, #eee 6px)
+}
+
+main.power {
+	--state: #c00000
+}
+
+main.brake {
+	--state: #002060
+}
+
+main.coast {
+	--state: #92d050
+}
+
+header {
+	height: 55px;
+	position: relative;
+	background: var(--hatch);
+	font-size: 26.667px;
+	line-height: 55px;
+	white-space: nowrap
+}
+
+header img {
+	position: absolute;
+	left: 8px;
+	top: 5px;
+	width: 143px;
+	height: 43px;
+	object-fit: contain
+}
+
+header .page-title {
+	position: absolute;
+	left: 162px;
+	top: 0;
+	font-weight: 300
+}
+
+.running {
+	position: absolute;
+	left: 359px;
+	top: 0;
+	max-width: 800px;
+	overflow: hidden;
+	text-overflow: ellipsis
+}
+
+.running strong {
+	font-weight: 500
+}
+
+#connection {
+	position: absolute;
+	right: 165px;
+	top: 0;
+	font-weight: 300
+}
+
+#connection::before {
+	content: "";
+	display: inline-block;
+	width: 24px;
+	height: 24px;
+	margin-right: 12px;
+	border-radius: 50%;
+	background: #999;
+	vertical-align: -2px
+}
+
+#connection.online::before {
+	background: #00b050
+}
+
+#connection.offline::before {
+	background: #c00000
+}
+
+.scope {
+	height: 319px;
+	position: relative;
+	background: white
+}
+
+.scope canvas {
+	width: 100%;
+	height: 100%;
+	display: block
+}
+
+.control-panel {
+	position: relative;
+	height: 526px;
+	background: var(--hatch)
+}
+
+.readouts {
+	position: absolute;
+	top: 24px;
+	left: 0;
+	width: 100%;
+	height: 128px
+}
+
+.state-badge {
+	position: absolute;
+	left: 16px;
+	width: 288px;
+	height: 128px;
+	background: var(--state);
+	color: white;
+	display: grid;
+	place-items: center;
+	padding-right: 20px;
+	font-weight: 700;
+	font-size: 54px;
+	clip-path: polygon(0 0, 91.5% 0, 100% 50%, 91.5% 100%, 0 100%)
+}
+
+.metrics {
+	position: absolute;
+	left: 304px;
+	width: 472px;
+	height: 128px;
+	background: #d9d9d9;
+	clip-path: polygon(0 0, 95% 0, 100% 50%, 95% 100%, 0 100%, 5% 50%);
+	display: grid;
+	grid-template-columns: 105px 1fr;
+	grid-template-rows: repeat(2, minmax(0, 1fr));
+	gap: 0 22px;
+	align-items: center;
+	padding: 5px 42px 5px 30px
+}
+
+.metrics>span {
+	background: #808080;
+	color: #fff;
+	text-align: center;
+	font-size: 26px;
+	font-weight: 700;
+	line-height: 44px
+}
+
+.metrics strong {
+	line-height: 1;
+	font-size: 40px;
+	font-weight: 500;
+	white-space: nowrap
+}
+
+.stop .metrics>span {
+	visibility: hidden
+}
+
+.pulse {
+	position: absolute;
+	left: 784px;
+	width: 800px;
+	height: 128px;
+	background: #d9d9d9;
+	clip-path: polygon(0 0, 100% 0, 100% 100%, 0 100%, 3% 50%);
+	display: flex;
+	align-items: center;
+	padding: 13px 30px 13px 38px;
+	gap: 23px
+}
+
+.pulse>span {
+	flex: none;
+	display: grid;
+	place-items: center;
+	width: 216px;
+	height: 102px;
+	background: #c00000;
+	color: #fff;
+	font-weight: 700;
+	font-size: 53px
+}
+
+.pulse[data-mode="async"]>span {
+	background: #5b9bd5
+}
+
+.pulse[data-mode="none"]>span {
+	background: #aaa
+}
+
+.pulse>strong {
+	font-weight: 700;
+	font-size: 73px;
+	letter-spacing: -2px;
+	white-space: nowrap
+}
+
+.pulse>small {
+	font-size: 35px;
+	white-space: nowrap;
+	align-self: flex-end;
+	margin-bottom: 10px;
+	margin-left: -15px
+}
+
+.lower-panel {
+	position: absolute;
+	left: 0;
+	top: 176px;
+	width: 100%;
+	height: 350px
+}
+
+.driver-desk {
+	position: absolute;
+	left: 16px;
+	top: 0;
+	width: 996px;
+	height: 330px;
+	background: linear-gradient(#444444, #363636);
+	border: 1px solid #282828;
+	box-shadow: inset 0 1px 0 #777777, inset 0 -1px 0 #222222;
+	color: #efefef
+}
+
+.mascon {
+	position: absolute;
+	left: 24px;
+	top: 16px;
+	width: 132px;
+	height: 298px
+}
+
+/* Square dark instrument plate with a recessed slot and a centered handle. */
+.notch-scale {
+	position: absolute;
+	left: 0;
+	top: 0;
+	width: 132px;
+	height: 298px;
+	padding: 8px 0;
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+	background: linear-gradient(90deg, #292929, #282828);
+	box-shadow: inset 0 0 0 1px #636363;
+	user-select: none;
+	--rail-center: 96px;
+	--active-color: #e0e0e0;
+	--active-top: 17px;
+	--active-height: 0px
+}
+
+.notch-scale::before,
+.notch-scale::after {
+	content: "";
+	position: absolute;
+	box-sizing: border-box;
+	pointer-events: none
+}
+
+.notch-scale::before {
+	left: calc(var(--rail-center) - 4px);
+	width: 8px;
+	top: 17px;
+	bottom: 17px;
+	background: linear-gradient(90deg, #171717, #212121 60%, #828282);
+	box-shadow: inset 1px 0 1px #0007
+}
+
+.notch-scale::after {
+	left: calc(var(--rail-center) - 1px);
+	width: 2px;
+	top: var(--active-top);
+	height: var(--active-height);
+	background: var(--active-color);
+	opacity: .75
+}
+
+.notch-scale[data-mode="brake"] {
+	--active-color: #69bce9
+}
+
+.notch-scale[data-mode="power"] {
+	--active-color: #f3c861
+}
+
+.notch-scale[data-mode="neutral"] {
+	--active-color: #b4d989
+}
+
+.notch-scale[data-mode="full-power"] {
+	--active-color: #ff7d72
+}
+
+.notch-scale span {
+	position: relative;
+	z-index: 1;
+	height: 18px;
+	width: 132px;
+	flex: none;
+	padding-left: 16px;
+	line-height: 18px;
+	font-size: 14px;
+	font-variant-numeric: tabular-nums;
+	color: #cfcfcf;
+	--accent: #69bce9;
+	--label: #9cd4f3
+}
+
+.notch-scale span.power {
+	--accent: #f3c861;
+	--label: #ffe09c
+}
+
+.notch-scale span.neutral {
+	--accent: #b4d989;
+	--label: #cde5ad
+}
+
+.notch-scale span.top {
+	--accent: #90b4e2;
+	--label: #c6d9ef
+}
+
+.notch-scale span.bottom {
+	--accent: #ff7d72;
+	--label: #ffada5
+}
+
+.notch-scale span::before {
+	content: "";
+	position: absolute;
+	box-sizing: border-box;
+	left: 64px;
+	top: 50%;
+	transform: translateY(-50%);
+	width: 18px;
+	height: 2px;
+	background: #a5a5a5
+}
+
+.notch-scale span.neutral::before {
+	width: 22px;
+	background: #b4d989
+}
+
+.notch-scale span.selected {
+	color: var(--label);
+	font-weight: 700
+}
+
+.notch-scale span.selected::before {
+	width: 24px;
+	background: var(--accent)
+}
+
+.notch-scale span.selected::after {
+	content: "";
+	position: absolute;
+	box-sizing: border-box;
+	left: var(--rail-center);
+	top: 50%;
+	transform: translate(-50%, -50%);
+	width: 48px;
+	height: 24px;
+	border: 1px solid #959595;
+	background: linear-gradient(to bottom, transparent calc(50% - 1px), var(--accent) calc(50% - 1px), var(--accent) calc(50% + 1px), transparent calc(50% + 1px)), linear-gradient(#6d6d6d, #3c3c3c);
+	box-shadow: inset 0 1px 0 #afafaf66, 0 1px 0 #0f0f0f
+}
+
+.mascon:has(input:focus-visible) .notch-scale span.selected::after {
+	outline: 2px solid var(--accent);
+	outline-offset: 2px
+}
+
+.mascon input {
+	position: absolute;
+	z-index: 2;
+	left: 0;
+	top: 0;
+	height: 298px;
+	width: 132px;
+	writing-mode: vertical-lr;
+	direction: ltr;
+	appearance: auto;
+	margin: 0;
+	opacity: 0;
+	cursor: grab;
+	touch-action: none
+}
+
+.mascon:has(.notch-scale.dragging) input {
+	cursor: grabbing
+}
+
+.mascon:has(input:hover:not(:disabled)) .notch-scale span.selected::after,
+.notch-scale.dragging span.selected::after {
+	border-color: #e0e0e0;
+	box-shadow: inset 0 1px 0 #d7d7d788, 0 1px 0 #0f0f0f
+}
+
+.mascon input:disabled {
+	cursor: default
+}
+
+.mascon output {
+	position: absolute;
+	left: 156px;
+	top: 0;
+	width: 140px;
+	height: 74px;
+	display: grid;
+	place-items: center;
+	color: white;
+	background: #484848;
+	font-size: 52px;
+	line-height: 1;
+	font-weight: 500;
+	pointer-events: none
+}
+
+.mascon output.power {
+	background: #ffc000;
+	color: #393939
+}
+
+.mascon output.full-power {
+	background: #c00000;
+	color: white
+}
+
+.mascon output.brake {
+	background: #0070c0
+}
+
+.mascon output.full-brake {
+	background: #002060
+}
+
+.mascon output.neutral {
+	background: #92d050;
+	color: white
+}
+
+.controller-label {
+	position: absolute;
+	left: 180px;
+	top: 106px;
+	width: 140px;
+	text-align: center;
+	font-size: 13px;
+	letter-spacing: 2px;
+	color: #cfcfcf
+}
+
+.speed-section {
+	position: absolute;
+	left: 344px;
+	top: 16px;
+	width: 628px;
+	height: 298px
+}
+
+.meter-heading {
+	position: absolute;
+	z-index: 1;
+	left: 24px;
+	top: 18px;
+	width: 580px;
+	font-size: 14px;
+	letter-spacing: 3px;
+	color: #cfcfcf
+}
+
+.speed-number {
+	position: absolute;
+	z-index: 1;
+	left: 24px;
+	top: 42px;
+	width: 580px;
+	height: 74px;
+	display: flex;
+	align-items: baseline;
+	justify-content: flex-end;
+	gap: 16px;
+	padding: 0;
+	white-space: nowrap
+}
+
+.speed-number>span {
+	font-size: 68px;
+	line-height: 1;
+	font-weight: 500;
+	font-variant-numeric: tabular-nums;
+	color: #f7f7f7
+}
+
+.speed-number small {
+	font-size: 24px;
+	color: #f7f7f7
+}
+
+#speedometer {
+	position: absolute;
+	left: 0;
+	top: 0;
+	width: 628px;
+	height: 212px;
+	display: block
+}
+
+.operator-controls {
+	position: absolute;
+	left: 180px;
+	top: 166px;
+	display: flex;
+	flex-direction: column;
+	gap: 12px;
+	width: 140px
+}
+
+.operator-controls button {
+	height: 44px;
+	border: 1px solid #868686;
+	background: linear-gradient(#6d6d6d, #474747);
+	box-shadow: inset 0 1px 0 #a8a8a855;
+	color: #f7f7f7;
+	font-size: 15px
+}
+
+.operator-controls button:hover:not(:disabled) {
+	background: linear-gradient(#787878, #646464)
+}
+
+.operator-controls #take-control:not(:disabled) {
+	background: linear-gradient(#6b6b6b, #464646);
+	border-color: #939393
+}
+
+.operator-controls button:disabled {
+	color: #919191;
+	border-color: #676767;
+	background: #454545;
+	box-shadow: none
+}
+
+.operator-controls button:focus-visible {
+	outline: 2px solid #f4f4f4;
+	outline-offset: 2px
+}
+
+.speed-section p {
+	position: absolute;
+	left: 0;
+	margin: 0;
+	font-size: 13px;
+	line-height: 20px;
+	width: 628px;
+	color: #d7d7d7
+}
+
+#operation-note {
+	top: 226px
+}
+
+.speed-section .keys {
+	top: 276px;
+	color: #bebebe;
+	font-size: 11px;
+	white-space: nowrap
+}
+
+.speed-section #message {
+	top: 248px;
+	color: #ffd09b;
+	font-size: 13px
+}
+
+.patterns {
+	position: absolute;
+	left: 1040px;
+	top: 0;
+	width: 524px
+}
+
+.patterns>label {
+	display: block;
+	font-size: 23px;
+	line-height: 40px;
+	padding-left: 10px
+}
+
+.patterns>div {
+	height: 274px;
+	border: 12px solid #d9d9d9;
+	background: repeating-linear-gradient(to bottom, #a5a5a5 0px, #a5a5a5 40px, #bfbfbf 40px, #bfbfbf 80px);
+	overflow-y: scroll;
+	scrollbar-color: #999 white;
+	scrollbar-width: auto
+}
+
+.patterns>div::-webkit-scrollbar {
+	width: 18px;
+	background: #fff
+}
+
+.patterns>div::-webkit-scrollbar-thumb {
+	background: #999;
+	border: 4px solid white
+}
+
+.pattern {
+	display: block;
+	width: 100%;
+	height: 40px;
+	border: 0;
+	background: transparent;
+	text-align: left;
+	padding: 5px 10px;
+	font-size: 19px;
+	color: #393939
+}
+
+.pattern.selected {
+	background: #f8cbad
+}
+
+.pattern:disabled {
+	color: #666
+}
+
+.pattern:focus-visible {
+	outline: 2px solid #002060;
+	outline-offset: -2px
+}
+
+.patterns>p {
+	margin: 4px 0;
+	font-size: 12px;
+	color: #666
+}
+
+.pulse[data-mode="none"]>strong,
+.pulse[data-mode="none"]>small {
+	display: none
+}
+
+/* All chevrons share a 24 px cut, with an 8 px gap along both diagonals. */
+.state-badge {
+	clip-path: polygon(0 0, calc(100% - 24px) 0, 100% 50%, calc(100% - 24px) 100%, 0 100%)
+}
+
+.metrics {
+	left: 288px;
+	width: 488px;
+	clip-path: polygon(0 0, calc(100% - 24px) 0, 100% 50%, calc(100% - 24px) 100%, 0 100%, 24px 50%);
+	padding-left: 40px
+}
+
+.pulse {
+	left: 760px;
+	width: 824px;
+	clip-path: polygon(0 0, 100% 0, 100% 100%, 0 100%, 24px 50%)
+}
+
+.patterns>div {
+	background: #bfbfbf;
+	scrollbar-gutter: stable
+}
+
+.pattern {
+	display: flex;
+	align-items: center;
+	height: 40px;
+	padding: 0 12px;
+	line-height: 1;
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis
+}
+
+.pattern:nth-child(odd) {
+	background: #a5a5a5
+}
+
+.pattern:nth-child(even) {
+	background: #bfbfbf
+}
+
+.pattern.selected {
+	background: #f8cbad
+}
+
+#connect-device {
+	position: absolute;
+	right: 12px;
+	top: 8px;
+	width: 137px;
+	height: 39px;
+	border: 0;
+	background: #1c1c1c;
+	color: white;
+	font-size: 18px;
+	line-height: 1
+}
+
+#connect-device:disabled {
+	background: #808080
+}
+
+@media (prefers-color-scheme: dark) {
+	:root {
+		color: #e8e8e8;
+		color-scheme: dark
+	}
+
+	main {
+		--hatch: repeating-linear-gradient(135deg, #212121 0px, #212121 4px, #282828 4px, #282828 6px)
+	}
+
+	main.coast {
+		--state: #406020
+	}
+
+	header img {
+		filter: invert(1);
+		mix-blend-mode: screen
+	}
+
+	.scope {
+		background: #151515
+	}
+
+	.metrics,
+	.pulse {
+		background: #383838
+	}
+
+	.metrics>span,
+	.pulse[data-mode="none"]>span {
+		background: #555
+	}
+
+	.pulse[data-mode="async"]>span {
+		background: #24557e
+	}
+
+	.mascon output.neutral {
+		background: #406020
+	}
+
+	.patterns>div {
+		border-color: #444;
+		background: #383838;
+		scrollbar-color: #777 #242424
+	}
+
+	.patterns>div::-webkit-scrollbar {
+		background: #242424
+	}
+
+	.patterns>div::-webkit-scrollbar-thumb {
+		background: #777;
+		border-color: #242424
+	}
+
+	.pattern {
+		color: #e8e8e8
+	}
+
+	.pattern:nth-child(odd) {
+		background: #303030
+	}
+
+	.pattern:nth-child(even) {
+		background: #383838
+	}
+
+	.pattern.selected {
+		background: #64482f
+	}
+
+	.pattern:disabled {
+		color: #aaa
+	}
+
+	.pattern:focus-visible {
+		outline-color: #e8e8e8
+	}
+
+	.patterns>p {
+		color: #bcbcbc
+	}
+
+	#connect-device {
+		background: #fff;
+		color: #000
+	}
+
+	#connect-device:disabled {
+		background: #303030;
+		color: #aaa
+	}
+}
