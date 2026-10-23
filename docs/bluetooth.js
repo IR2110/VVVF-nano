@@ -152,6 +152,7 @@ export class BleTransport {
 		this.stateAt = 0;
 		this.rx = { since: performance.now(), bytes: 0, waves: 0 };
 		this.connecting = null;
+		this.generation = 0;
 		this.closed = false;
 		this.stream = null;
 		this.listener = (e) => this.receive(e.target.value);
@@ -159,6 +160,8 @@ export class BleTransport {
 	async connect() {
 		this.closed = false;
 		if (this.connecting) return this.connecting;
+		clearTimeout(this.reconnectTimer);
+		this.reconnectTimer = null;
 		this.connecting = this.connectDevice();
 		try {
 			await this.connecting;
@@ -168,6 +171,7 @@ export class BleTransport {
 			throw e;
 		} finally {
 			this.connecting = null;
+			if (!this.joined) this.scheduleReconnect();
 		}
 	}
 	async connectDevice() {
@@ -194,22 +198,39 @@ export class BleTransport {
 			);
 		}
 		if (this.device.gatt.connected && this.command) return;
-		const server = await this.device.gatt.connect(),
-			service = await server.getPrimaryService(BLE_UUID.service);
-		const command = await service.getCharacteristic(BLE_UUID.command);
-		const meta = await service.getCharacteristic(BLE_UUID.patterns);
-		this.patterns = await readBlePatterns(meta, command, (fn) => this.runGatt(fn));
+		const device = this.device, generation = this.generation;
+		const check = () => {
+			if (this.closed || this.device !== device || this.generation !== generation || !device.gatt.connected)
+				throw Error("Bluetooth接続が切断されました。再接続を試みています。");
+		};
+		// Do not use service objects from an attempt that disconnected mid-discovery.
+		const server = await device.gatt.connect();
+		check();
+		const service = await this.runGatt(async () => {check(); return server.getPrimaryService(BLE_UUID.service);});
+		check();
+		const characteristic = async (uuid) => {
+			check();
+			const result = await this.runGatt(async () => {check(); return service.getCharacteristic(uuid);});
+			check();
+			return result;
+		};
+		const command = await characteristic(BLE_UUID.command);
+		const meta = await characteristic(BLE_UUID.patterns);
+		this.patterns = await readBlePatterns(meta, command, (fn) => this.runGatt(async () => {
+			check();
+			const value = await fn();
+			check();
+			return value;
+		}));
+		check();
 		this.reader = new FragmentReader();
-		const stream = await service.getCharacteristic(BLE_UUID.stream);
-		if (this.stream)
-			this.stream.removeEventListener(
-				"characteristicvaluechanged",
-				this.listener,
-			);
+		const stream = await characteristic(BLE_UUID.stream);
+		if (this.stream) this.stream.removeEventListener("characteristicvaluechanged", this.listener);
 		this.stream = stream;
 		stream.addEventListener("characteristicvaluechanged", this.listener);
 		this.rx = { since: performance.now(), bytes: 0, waves: 0 };
-		await stream.startNotifications();
+		await this.runGatt(async () => {check(); return stream.startNotifications();});
+		check();
 		this.command = command;
 		const response = await this.fetch("/api/command", {
 			body: JSON.stringify({action: "join", value: this.everJoined}),
@@ -285,6 +306,7 @@ export class BleTransport {
 		}
 	}
 	disconnected() {
+		++this.generation;
 		if (this.stream)
 			this.stream.removeEventListener(
 				"characteristicvaluechanged",
@@ -303,16 +325,16 @@ export class BleTransport {
 			p.reject(Error("Bluetoothの接続が途絶しました。"));
 		}
 		this.pending.clear();
-		if (this.device && !this.closed && !this.reconnectTimer)
-			this.reconnectTimer = setTimeout(async () => {
-				this.reconnectTimer = null;
-				try {
-					await this.connect();
-				} catch {
-					this.disconnected();
-				}
-			}, 2000);
+		this.scheduleReconnect();
 	}
+	scheduleReconnect() {
+		if (!this.device || this.closed || this.connecting || this.reconnectTimer) return;
+		this.reconnectTimer = setTimeout(() => {
+			this.reconnectTimer = null;
+			void this.connect().catch(() => {});
+		}, 2000);
+	}
+
 	async fetch(path, options = {}) {
 		if (!this.device?.gatt.connected || !this.command)
 			throw Error("Bluetooth接続待ち");

@@ -6,7 +6,7 @@ import {
 	pwmBadgeMode,
 	STATE_PERIOD_MS,
 } from "./telemetry.js";
-import { BleTransport } from "./bluetooth.js";
+import { BleTransport } from "./bluetooth.js?v=20261023-exclusive";
 const session = crypto.randomUUID();
 const bluetooth = new BleTransport(session);
 const $ = (id) => document.getElementById(id);
@@ -17,6 +17,7 @@ let state = null,
 	commandQueue = Promise.resolve(),
 	notchWanted = null,
 	notchInFlight = null,
+	notchInFlightAt = 0,
 	notchSending = false;
 let masconDrag = null;
 let frame = null,
@@ -118,12 +119,14 @@ function disconnected() {
 		loseControl();
 	}
 	$("connection").textContent =
-		!bluetooth.device ? "接続待ち" : "再接続中";
+		!bluetooth.device ? "接続待ち" : bluetooth.connecting && !bluetooth.everJoined ? "接続中" : "再接続中";
 	$("connection").className =
 		!bluetooth.device ? "waiting" : "offline";
 	$("operation-note").textContent =
 		!bluetooth.device
 			? "Bluetooth接続から「VVVF nano」を選択してください。"
+			: bluetooth.connecting && !bluetooth.everJoined
+				? "Bluetoothの接続と形式情報の読込みを行っています。"
 			: "基板操作へ戻ります。接続後、Web操作開始で再開できます。";
 	refreshControls();
 }
@@ -176,7 +179,7 @@ function refreshControls() {
 					!online ||
 					!state ||
 					state.speed_hz > 0 ||
-					(state.web && !owned)),
+					!owned),
 		);
 }
 function setNotchBadge(value) {
@@ -285,7 +288,10 @@ function render(s) {
 	$("needle").setAttribute("transform", `translate(${meterPosition} 0)`);
 	$("speed-fill").setAttribute("width", meterPosition);
 	buildScale(s.power_notches, s.brake_notches);
-	if (!notchSending) notchInFlight = null;
+	// The acknowledgement can arrive before the next drive telemetry snapshot.
+	// Hold the requested notch until telemetry catches up.
+	if (!notchSending && (notchInFlight === s.mascon ||
+		performance.now() - notchInFlightAt > 1500)) notchInFlight = null;
 	if (!masconDrag && notchWanted === null && notchInFlight === null) {
 		$("mascon").value = s.mascon;
 		setNotchBadge(s.mascon);
@@ -300,7 +306,7 @@ function render(s) {
 	$("operation-note").textContent = owned
 		? "Web操作中：基板スイッチは無視します。"
 		: s.web
-			? "Web操作開始で現在の運転に参加できます。"
+			? "別の画面がWeb操作中です。Web操作開始で操作権を移せます。"
 			: "基板操作中：Web操作開始でB" +
 				s.brake_notches +
 				"から操作します。";
@@ -364,6 +370,7 @@ async function sendLatestNotch() {
 			const value = notchWanted;
 			notchWanted = null;
 			notchInFlight = value;
+			notchInFlightAt = performance.now();
 			await command("notch", value);
 		}
 	} catch (e) {
