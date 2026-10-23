@@ -59,17 +59,26 @@ $("toggle-wave").addEventListener("click", () => void setWave(!bluetooth.client?
 window.addEventListener("pageshow", (event) => {
 	if (event.persisted) {bluetooth.closed = false; void bluetooth.connect().catch((e) => message(e.message));}
 });
+// Use the same condition as the mobile stylesheet; mouse-operated PCs retain
+// the fixed desktop console even in a narrow window.
+const mobileLayout = matchMedia("(max-width: 1023px) and (pointer: coarse)");
 let pulseFitKey = "";
 function fitPulseValue() {
 	const pulse = document.querySelector(".pulse"),
 		value = $("pulse-value"),
 		detail = $("pulse-detail");
-	const key = value.textContent + "|" + detail.textContent;
+	const mobile = mobileLayout.matches,
+		fontSize = mobile ? 30 : 73;
+	const key = value.textContent + "|" + detail.textContent +
+		(mobile ? `|mobile/${pulse.clientWidth}` : "");
 	if (key === pulseFitKey) return;
 	pulseFitKey = key;
-	value.style.fontSize = "73px";
-	const available =
-		824 -
+	value.style.fontSize = `${fontSize}px`;
+	const css = mobile ? getComputedStyle(pulse) : null;
+	const available = mobile
+		? pulse.clientWidth - parseFloat(css.paddingLeft) - parseFloat(css.paddingRight) -
+			$("mode-badge").offsetWidth - parseFloat(css.columnGap)
+		: 824 -
 		38 -
 		30 -
 		216 -
@@ -79,16 +88,35 @@ function fitPulseValue() {
 			: 0);
 	const natural = value.scrollWidth;
 	if (natural > available)
-		value.style.fontSize = `${Math.floor((73 * available) / natural)}px`;
+		value.style.fontSize = `${Math.floor((fontSize * available) / natural)}px`;
 }
 let layoutScale = 1;
+let meterTravel = 580, meterLayoutKey = "", layoutReady = false, wasMobile = false;
 function resizeLayout() {
-	layoutScale = Math.min(innerWidth / 1600, innerHeight / 900);
-	$("stage").style.width = `${1600 * layoutScale}px`;
-	$("stage").style.height = `${900 * layoutScale}px`;
-	$("console").style.transform = `scale(${layoutScale})`;
+	const mobile = mobileLayout.matches, relayout = mobile || wasMobile;
+	wasMobile = mobile;
+	if (relayout) endMasconDrag();
+	if (mobile) {
+		layoutScale = 1;
+		$("stage").style.removeProperty("width");
+		$("stage").style.removeProperty("height");
+		$("console").style.removeProperty("transform");
+	} else {
+		layoutScale = Math.min(innerWidth / 1600, innerHeight / 900);
+		$("stage").style.width = `${1600 * layoutScale}px`;
+		$("stage").style.height = `${900 * layoutScale}px`;
+		$("console").style.transform = `scale(${layoutScale})`;
+	}
+	if (layoutReady && relayout) {
+		fitNotchScale();
+		setNotchBadge(Number($("mascon").value));
+		resizeSpeedometer();
+		pulseFitKey = "";
+		fitPulseValue();
+	}
 }
 addEventListener("resize", resizeLayout);
+mobileLayout.addEventListener("change", resizeLayout);
 resizeLayout();
 const errors = {
 	offline: "ESP32との通信が途絶しました。再接続を試みています。",
@@ -239,6 +267,10 @@ function buildScale(power, brake) {
 	}
 	$("mascon").min = -brake;
 	$("mascon").max = power;
+	fitNotchScale();
+}
+function fitNotchScale() {
+	const scale = $("notch-scale");
 	const css = getComputedStyle(scale),
 		rowHeight = scale.firstElementChild.offsetHeight;
 	const travel =
@@ -246,7 +278,8 @@ function buildScale(power, brake) {
 		parseFloat(css.paddingTop) -
 		parseFloat(css.paddingBottom) -
 		rowHeight;
-	scale.style.gap = `${travel / (power + brake) - rowHeight}px`;
+	const intervals = scale.children.length - 1;
+	scale.style.gap = `${intervals > 0 ? Math.max(0, travel / intervals - rowHeight) : 0}px`;
 }
 function render(s) {
 	if (
@@ -277,14 +310,14 @@ function render(s) {
 		$(id).textContent = text[key].replace("—", "-");
 	$("pulse-value").textContent = text.pulse
 		.replace("—", "-")
-		.replace(" パルス", "パルス")
+		.replace(" パルス", mobileLayout.matches ? " P" : "パルス")
 		.replace(" Hz", "Hz");
 	$("pulse-detail").textContent = text.detail.replace(" Hz", "Hz");
 	document.querySelector(".pulse").dataset.mode = pwmBadgeMode(s);
 	fitPulseValue();
 	$("speed").textContent = formatSpeed(s.speed_kmh);
 	$("running-pattern").textContent = s.pattern_name;
-	const meterPosition = (Math.max(0, Math.min(160, s.speed_kmh)) / 160) * 580;
+	const meterPosition = (Math.max(0, Math.min(160, s.speed_kmh)) / 160) * meterTravel;
 	$("needle").setAttribute("transform", `translate(${meterPosition} 0)`);
 	$("speed-fill").setAttribute("width", meterPosition);
 	buildScale(s.power_notches, s.brake_notches);
@@ -534,29 +567,65 @@ heartbeatWorker.onmessage = () => {
 	}
 };
 const svgNS = "http://www.w3.org/2000/svg";
-for (let n = 0; n <= 160; n += 5) {
-	const x = 24 + (n / 160) * 580,
-		line = document.createElementNS(svgNS, "line");
-	line.setAttribute("x1", x);
-	line.setAttribute("x2", x);
-	line.setAttribute("y1", 140);
-	line.setAttribute("y2", n % 20 === 0 ? 164 : n % 10 === 0 ? 157 : 151);
-	line.setAttribute("stroke", n % 20 === 0 ? "#eef3f7" : "#9cabb8");
-	line.setAttribute("stroke-width", n % 20 === 0 ? 2 : 1);
-	$("speed-ticks").append(line);
-	if (n % 20 === 0) {
-		const label = document.createElementNS(svgNS, "text");
-		label.setAttribute("x", x);
-		label.setAttribute("y", 190);
-		label.setAttribute("text-anchor", "middle");
-		label.setAttribute("fill", "#e2ebf2");
-		label.setAttribute("font-size", "15");
-		label.textContent = n;
-		$("speed-ticks").append(label);
+
+function resizeSpeedometer() {
+	const mobile = mobileLayout.matches,
+		meter = $("speedometer"),
+		width = mobile ? meter.clientWidth : 628,
+		height = mobile ? 160 : 212,
+		left = mobile ? 14 : 24,
+		top = mobile ? 112 : 140;
+	const key = `${mobile}/${width}`;
+	if (meterLayoutKey === key) return;
+	meterLayoutKey = key;
+	meterTravel = width - left * 2;
+	meter.setAttribute("viewBox", `0 0 ${width} ${height}`);
+	const [face, track] = meter.querySelectorAll("rect");
+	face.setAttribute("width", width - 1);
+	face.setAttribute("height", height - 1);
+	for (const rect of [track, $("speed-fill")]) {
+		rect.setAttribute("x", left);
+		rect.setAttribute("y", top);
+	}
+	track.setAttribute("width", meterTravel);
+	const position = (Math.max(0, Math.min(160, state?.speed_kmh || 0)) / 160) * meterTravel;
+	$("speed-fill").setAttribute("width", position);
+	const needle = $("needle");
+	needle.setAttribute("transform", `translate(${position} 0)`);
+	needle.querySelector("path").setAttribute("d",
+		`M${left - 5} ${top - 21} L${left + 5} ${top - 21} L${left} ${top - 11} Z`);
+	const needleLine = needle.querySelector("line");
+	needleLine.setAttribute("x1", left);
+	needleLine.setAttribute("x2", left);
+	needleLine.setAttribute("y1", top - 10);
+	needleLine.setAttribute("y2", top + 24);
+	$("speed-ticks").replaceChildren();
+	for (let n = 0; n <= 160; n += 5) {
+		const x = left + (n / 160) * meterTravel,
+			line = document.createElementNS(svgNS, "line");
+		line.setAttribute("x1", x);
+		line.setAttribute("x2", x);
+		line.setAttribute("y1", top);
+		line.setAttribute("y2", top + (n % 20 === 0 ? 24 : n % 10 === 0 ? 17 : 11));
+		line.setAttribute("stroke", n % 20 === 0 ? "#eef3f7" : "#9cabb8");
+		line.setAttribute("stroke-width", n % 20 === 0 ? 2 : 1);
+		$("speed-ticks").append(line);
+		if (n % (mobile ? 40 : 20) === 0) {
+			const label = document.createElementNS(svgNS, "text");
+			label.setAttribute("x", x);
+			label.setAttribute("y", mobile ? 153 : 190);
+			label.setAttribute("text-anchor", "middle");
+			label.setAttribute("fill", "#e2ebf2");
+			label.setAttribute("font-size", mobile ? "11" : "15");
+			label.textContent = n;
+			$("speed-ticks").append(label);
+		}
 	}
 }
+resizeSpeedometer();
 buildScale(5, 7);
 setNotchBadge(-7);
+layoutReady = true;
 function draw() {
 	const ratio = (devicePixelRatio || 1) * layoutScale,
 		w = canvas.clientWidth,
