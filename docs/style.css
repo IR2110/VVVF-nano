@@ -1,7 +1,21 @@
 @font-face {
-	font-family: "Source Han Sans";
-	src: url("assets/SourceHanSansJP-VF.otf.woff2") format("woff2");
-	font-weight: 100 900;
+	font-family: "GenEi Gothic P";
+	src: url("assets/GenEiGothicP-Light.woff2") format("woff2");
+	font-weight: 300;
+	font-display: swap
+}
+
+@font-face {
+	font-family: "GenEi Gothic P";
+	src: url("assets/GenEiGothicP-SemiBold.woff2") format("woff2");
+	font-weight: 500;
+	font-display: swap
+}
+
+@font-face {
+	font-family: "GenEi Gothic P";
+	src: url("assets/GenEiGothicP-Bold.woff2") format("woff2");
+	font-weight: 700;
 	font-display: swap
 }
 
@@ -24,7 +38,7 @@
 }
 
 :root {
-	font-family: ShinGo, "Source Han Sans", sans-serif;
+	font-family: ShinGo, "GenEi Gothic P", sans-serif;
 	font-weight: 500;
 	line-height: 1.2;
 	color: #393939;
