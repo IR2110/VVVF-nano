@@ -654,6 +654,7 @@ function draw() {
 		if (online && frame?.samples.length) {
 			ctx.strokeStyle = darkTheme.matches ? "#e8e8e8" : "#111";
 			ctx.lineWidth = 1.95;
+			ctx.lineJoin = "round";
 			ctx.beginPath();
 			ctx.moveTo(0, waveformY(frame.samples[0], h));
 			const xScale = w / frame.sampleSpan;
