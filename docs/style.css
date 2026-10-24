@@ -903,6 +903,8 @@ header .page-title {
 	#wave-dialog { background: #252525; color: #eee; }
 }
 
+.readout-details { display: contents; }
+
 /* Touch phones use a scrolling console. Desktop geometry stays above. Keep
    this condition in sync with mobileLayout in app.js. */
 @media (pointer: coarse) {
@@ -964,8 +966,18 @@ header .page-title {
 		height: 126px;
 		display: grid;
 		grid-template-columns: var(--state-width) minmax(0, 1fr);
-		grid-template-rows: 78px 48px;
+		grid-template-rows: 126px;
 		margin-bottom: 10px;
+	}
+	.readout-details {
+		grid-column: 2;
+		grid-row: 1;
+		min-width: 0;
+		display: flex;
+		flex-direction: column;
+		justify-content: center;
+		gap: 8px;
+		padding: 0 12px 0 16px;
 	}
 	.readouts::before {
 		content: "";
@@ -997,12 +1009,12 @@ header .page-title {
 		background: transparent;
 		clip-path: none;
 		grid-template-columns: 62px minmax(0, 1fr);
-		gap: 4px 10px;
-		padding: 9px 12px 3px 16px;
+		gap: 8px 10px;
+		align-items: stretch;
+		padding: 0;
 	}
-	.metrics > span, .pulse > span { line-height: 1.2; padding-block: 6px; }
-	.metrics > span { font-size: 12px; padding-inline: 0; }
-	.metrics strong { font-size: 21px; }
+	.metrics > span { display: grid; place-items: center; font-size: 12px; line-height: 1.2; padding: 3px 0; }
+	.metrics strong { font-size: 21px; align-self: center; }
 	.pulse {
 		position: relative;
 		left: auto;
@@ -1016,9 +1028,9 @@ header .page-title {
 		display: grid;
 		grid-template-columns: 80px minmax(0, 1fr);
 		gap: 0 10px;
-		padding: 0 12px 8px 16px;
+		padding: 0;
 	}
-	.pulse > span { width: 100%; height: auto; padding-inline: 8px; font-size: 20px; }
+	.pulse > span { width: 100%; height: 38px; padding: 0 8px; font-size: 20px; }
 	.pulse > strong { min-width: 0; font-size: 30px; letter-spacing: 0; }
 	.pulse > small { grid-column: 2; font-size: 12px; margin: 0; align-self: auto; }
 	.pulse > small:empty { display: none; }
@@ -1103,7 +1115,8 @@ header .page-title {
 	.control-panel { padding-left: 8px; padding-right: 8px; }
 	.readouts { --state-width: 84px; }
 	.state-badge { font-size: 25px; }
-	.metrics, .pulse { grid-template-columns: 54px minmax(0, 1fr); column-gap: 7px; padding-left: 14px; padding-right: 8px; }
+	.readout-details { padding-left: 14px; padding-right: 8px; }
+	.metrics, .pulse { grid-template-columns: 54px minmax(0, 1fr); column-gap: 7px; }
 	.metrics strong { font-size: 18px; }
 	.pulse { grid-template-columns: 76px minmax(0, 1fr); }
 	.driver-desk { grid-template-columns: 108px minmax(0, 1fr); padding: 8px; column-gap: 12px; }
