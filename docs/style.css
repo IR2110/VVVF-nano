@@ -1013,11 +1013,11 @@ header .page-title {
 		background: transparent;
 		clip-path: none;
 		display: grid;
-		grid-template-columns: 62px minmax(0, 1fr);
+		grid-template-columns: 80px minmax(0, 1fr);
 		gap: 0 10px;
 		padding: 0 12px 8px 16px;
 	}
-	.pulse > span { width: 62px; height: 38px; font-size: 20px; }
+	.pulse > span { width: 100%; height: 38px; padding: 0 8px; font-size: 20px; }
 	.pulse > strong { min-width: 0; font-size: 30px; letter-spacing: 0; }
 	.pulse > small { grid-column: 2; font-size: 12px; margin: 0; align-self: auto; }
 	.pulse > small:empty { display: none; }
@@ -1104,7 +1104,7 @@ header .page-title {
 	.state-badge { font-size: 25px; }
 	.metrics, .pulse { grid-template-columns: 54px minmax(0, 1fr); column-gap: 7px; padding-left: 14px; padding-right: 8px; }
 	.metrics strong { font-size: 18px; }
-	.pulse > span { width: 54px; }
+	.pulse { grid-template-columns: 76px minmax(0, 1fr); }
 	.driver-desk { grid-template-columns: 108px minmax(0, 1fr); padding: 8px; column-gap: 12px; }
 	.mascon output { font-size: 58px; }
 }
