@@ -762,20 +762,30 @@ header .page-title {
 	background: #f8cbad
 }
 
-#connect-device {
+/* The two header actions share sizing, typography and every visual state. */
+#connect-device,
+#toggle-wave {
 	position: absolute;
-	right: 12px;
 	top: 8px;
-	width: 137px;
+	width: 160px;
 	height: 39px;
+	padding: 0 12px;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
 	border: 0;
+	border-radius: 3px;
 	background: #1c1c1c;
 	color: white;
 	font-size: 18px;
 	line-height: 1
 }
 
-#connect-device:disabled {
+#connect-device { right: 180px; }
+#toggle-wave { right: 8px; }
+
+#connect-device:disabled,
+#toggle-wave:disabled {
 	background: #808080
 }
 
@@ -863,34 +873,19 @@ header .page-title {
 		color: #bcbcbc
 	}
 
-	#connect-device {
+	#connect-device,
+	#toggle-wave {
 		background: #fff;
 		color: #000
 	}
 
-	#connect-device:disabled {
+	#connect-device:disabled,
+	#toggle-wave:disabled {
 		background: #303030;
 		color: #aaa
 	}
 }
 
-/* Keep both connection actions together without covering the running pattern. */
-#connect-device { right: 180px; }
-#toggle-wave {
-	position: absolute;
-	right: 8px;
-	top: 8px;
-	height: 39px;
-	min-width: 160px;
-	padding: 0 12px;
-	font-size: 20px;
-	line-height: 37px;
-	border: 0;
-	border-radius: 3px;
-	background: #222;
-	color: white;
-}
-#toggle-wave:disabled { background: #777; color: #ddd; }
 #wave-dialog {
 	max-width: min(540px, calc(100vw - 32px));
 	padding: 24px;
@@ -905,8 +900,6 @@ header .page-title {
 #wave-dialog div { display: flex; justify-content: flex-end; gap: 12px; margin-top: 24px; }
 #wave-dialog button { min-width: 90px; padding: 8px 16px; font-size: 18px; }
 @media (prefers-color-scheme: dark) {
-	#toggle-wave { background: white; color: black; }
-	#toggle-wave:disabled { background: #777; color: #ccc; }
 	#wave-dialog { background: #252525; color: #eee; }
 }
 
