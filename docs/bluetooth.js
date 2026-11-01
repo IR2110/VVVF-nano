@@ -202,13 +202,13 @@ export class BleTransport {
 				: [];
 			const previous = localStorage.getItem("vvvf-device");
 			const known = granted.filter(
-				(d) => d.name === "VVVF nano" || d.id === previous,
+				(d) => d.name === "VVVF nano" || d.name?.startsWith("VVVF nano ") || d.id === previous,
 			);
 			this.device =
 				known.length === 1
 					? known[0]
 					: await navigator.bluetooth.requestDevice({
-							filters: [{ name: "VVVF nano" }],
+							filters: [{ name: "VVVF nano" }, { namePrefix: "VVVF nano " }],
 							optionalServices: [BLE_UUID.service],
 						});
 			localStorage.setItem("vvvf-device", this.device.id);

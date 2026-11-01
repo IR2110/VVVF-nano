@@ -152,7 +152,7 @@ function disconnected() {
 		!bluetooth.device ? "waiting" : "offline";
 	$("operation-note").textContent =
 		!bluetooth.device
-			? "Bluetooth接続から「VVVF nano」を選択してください。"
+			? "Bluetooth接続から「VVVF nano …」（末尾は基板固有のID）を選択してください。"
 			: bluetooth.connecting && !bluetooth.everJoined
 				? "Bluetoothの接続と形式情報の読込みを行っています。"
 			: "基板操作へ戻ります。接続後、Web操作開始で再開できます。";
