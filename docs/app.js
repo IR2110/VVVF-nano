@@ -22,6 +22,7 @@ let state = null,
 	notchSending = false;
 let masconDrag = null;
 let hostNotch = null;
+let couplingStatus = "off";
 let patterns = [];
 let frame = null,
 	waveDirty = true,
@@ -51,9 +52,8 @@ const coupling = new ConsistCoordinator({
 			notchInFlightAt = performance.now();
 			hostNotch = null;
 		}
-		const label = $("consist-status");
-		label.textContent = status === "active" ? "併結中" : status === "waiting" ? "併結待機：両方の停止・Web操作開始を待っています" : "";
-		label.hidden = status === "off";
+		couplingStatus = status;
+		refreshOperationNote();
 	},
 	onNotch: (notch, pattern) => {
 		hostNotch = {notch, pattern};
@@ -242,7 +242,18 @@ function command(action, value) {
 	commandQueue = result;
 	return result;
 }
+function refreshOperationNote() {
+	if (!online || !state) return;
+	const status = couplingStatus === "active" ? "併結中 / "
+		: couplingStatus === "waiting" ? "併結待機中 / " : "";
+	$("operation-note").textContent = status + (owned
+		? "Web操作中：基板スイッチは無視します。"
+		: state.web
+			? "別の画面がWeb操作中です。Web操作開始で操作権を移せます。"
+			: "基板操作中：Web操作開始でB" + state.brake_notches + "から操作します。");
+}
 function refreshControls() {
+	refreshOperationNote();
 	$("take-control").disabled = !online || owned;
 	$("release-control").disabled = !online || !state?.web;
 	$("toggle-wave").disabled = !online;
@@ -387,13 +398,6 @@ function render(s) {
 	});
 	$("pattern-note").textContent =
 		s.speed_hz > 0 ? "運転中は変更できません" : "停止中に変更できます";
-	$("operation-note").textContent = owned
-		? "Web操作中：基板スイッチは無視します。"
-		: s.web
-			? "別の画面がWeb操作中です。Web操作開始で操作権を移せます。"
-			: "基板操作中：Web操作開始でB" +
-				s.brake_notches +
-				"から操作します。";
 	if (s.faults) message(`ESP32の異常を検知しました（${s.faults}）。`);
 	refreshControls();
 }
