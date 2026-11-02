@@ -6,8 +6,8 @@ import {
 	pwmBadgeMode,
 	STATE_PERIOD_MS,
 } from "./telemetry.js";
-import { BleTransport } from "./bluetooth.js?v=20261102-consist";
-import { ConsistCoordinator } from "./consist.js?v=20261102-consist";
+import { BleTransport } from "./bluetooth.js?v=20261102-host";
+import { ConsistCoordinator } from "./consist.js?v=20261102-host";
 const session = crypto.randomUUID();
 const bluetooth = new BleTransport(session);
 const $ = (id) => document.getElementById(id);
@@ -42,6 +42,7 @@ const waveDialog = $("wave-dialog");
 const consistDialog = $("consist-dialog");
 const coupling = new ConsistCoordinator({
 	session, send: (action, value) => command(action, value),
+	sendMotion: frame => bluetooth.sendMotion(frame), calibrate: () => bluetooth.syncClock(),
 	onOffer: () => { if (!consistDialog.open) consistDialog.showModal(); },
 	onStatus: status => {
 		const label = $("consist-status");
@@ -50,11 +51,18 @@ const coupling = new ConsistCoordinator({
 	},
 	onError: text => message(text),
 });
+function forwardConsistState(s = bluetooth.state) {
+	coupling.sample(s ? {...s, web: bluetooth.web} : null, bluetooth.patterns, bluetooth.client, bluetooth.clockEstimate);
+}
+bluetooth.onState = forwardConsistState;
 $("consist-yes").addEventListener("click", () => {consistDialog.close(); void coupling.accept();});
 $("consist-no").addEventListener("click", () => consistDialog.close());
 waveDialog.addEventListener("close", () => coupling.allowOffer());
 bluetooth.onMembership = (client) => {
-	if (client) coupling.update({...bluetooth.consist, manager: !!client.manager});
+	if (client) {
+		coupling.update({...bluetooth.consist, manager: !!client.manager});
+		forwardConsistState();
+	}
 	else {
 		coupling.disconnected();
 		if (consistDialog.open) consistDialog.close();
@@ -461,6 +469,11 @@ function requestNotch(value, force = false) {
 	if (!force && selected && value === Number(selected.dataset.notch)) return;
 	$("mascon").value = value;
 	setNotchBadge(value);
+	if (coupling.controlNotch(value)) {
+		notchInFlight = value;
+		notchInFlightAt = performance.now();
+		return;
+	}
 	notchWanted = value;
 	void sendLatestNotch();
 }

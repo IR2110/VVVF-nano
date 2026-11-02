@@ -4,6 +4,19 @@ export const BLE_UUID = {
 	stream: "8f5a0003-31cd-4850-9c6a-ff7b4c4f6e61",
 	patterns: "8f5a0004-31cd-4850-9c6a-ff7b4c4f6e61",
 };
+export function encodeConsistMotion(frame) {
+	if (!/^[0-9a-f]{16}$/.test(frame.token) || !Array.isArray(frame.coeff) || frame.coeff.length !== 6)
+		throw Error("併結指令が不正です");
+	const bytes = new Uint8Array(64), view = new DataView(bytes.buffer);
+	bytes[0] = 0x4d; bytes[1] = 2;
+	view.setInt8(2, frame.notch); view.setInt8(3, frame.display);
+	for (let i = 0; i < 8; ++i) bytes[4 + i] = parseInt(frame.token.slice(i * 2, i * 2 + 2), 16);
+	view.setUint32(12, frame.sequence, true); view.setUint32(16, frame.at_ms, true);
+	view.setFloat32(20, frame.speed, true); view.setFloat32(24, frame.limit, true);
+	view.setUint32(28, frame.revision, true); view.setUint32(32, frame.pattern, true);
+	frame.coeff.forEach((value, i) => view.setFloat32(36 + i * 4, value, true));
+	return bytes;
+}
 const decoder = new TextDecoder(),
 	encoder = new TextEncoder();
 const MAX_FRAGMENT_BYTES = 65535; // uint16 total length in the on-wire header.
@@ -164,6 +177,8 @@ export class BleTransport {
 		this.command = null;
 		this.state = null;
 		this.onWave = null;
+		this.onState = null;
+		this.clockEstimate = null;
 		this.patterns = [];
 		this.pending = new Map();
 		this.request = 0;
@@ -299,6 +314,7 @@ export class BleTransport {
 			if (frame.kind === 0) {
 				this.state = decodeBleState(frame.bytes, this.patterns);
 				this.stateAt = performance.now();
+				this.onState?.(this.state);
 			} else if (frame.kind === 1 || frame.kind === 4) {
 				if (this.client?.wave) this.onWave?.(
 					frame.kind === 4 ? unpackWave(frame.bytes).buffer : frame.bytes.buffer);
@@ -311,6 +327,15 @@ export class BleTransport {
 				const reply = JSON.parse(decoder.decode(frame.bytes)),
 					pending = this.pending.get(reply.request);
 				if (pending && reply.session === this.session) {
+					if (Number.isFinite(reply.uptime_ms) && Number.isFinite(pending.sentAt)) {
+						const receivedAt = performance.timeOrigin + performance.now();
+						const rtt = receivedAt - pending.sentAt;
+						const offset = reply.uptime_ms - (receivedAt + pending.sentAt) / 2;
+						if (!this.clockEstimate || rtt < this.clockEstimate.rtt)
+							this.clockEstimate = {rtt, offset};
+						else if (!this.calibrating && rtt <= this.clockEstimate.rtt + 3)
+							this.clockEstimate.offset += (offset - this.clockEstimate.offset) * 0.05;
+					}
 					clearTimeout(pending.timer);
 					this.pending.delete(reply.request);
 					pending.resolve(
@@ -343,6 +368,7 @@ export class BleTransport {
 		this.stream = null;
 		this.command = null;
 		this.state = null;
+		this.clockEstimate = null;
 		this.client = null;
 		this.web = false;
 		this.consist = null;
@@ -384,6 +410,7 @@ export class BleTransport {
 				this.runGatt(() => {
 					if (this.command !== characteristic || !this.pending.has(request))
 						throw Error("Bluetoothの接続が途絶しました。");
+					this.pending.get(request).sentAt = performance.timeOrigin + performance.now();
 					return characteristic.writeValueWithoutResponse(body);
 				}).catch((e) => {
 					clearTimeout(timer);
@@ -400,6 +427,27 @@ export class BleTransport {
 			return new Response(JSON.stringify({...this.state, web: this.web}));
 		}
 		throw Error("通信経路が不正です");
+	}
+	async syncClock() {
+		this.clockEstimate = null;
+		this.calibrating = true;
+		try {
+			for (let i = 0; i < 3; ++i) {
+				const response = await this.fetch("/api/command", {body: JSON.stringify({action: "clock"})});
+				if (!response.ok) throw Error("併結の時刻を確認できませんでした。");
+			}
+		} finally { this.calibrating = false; }
+		if (!this.clockEstimate) throw Error("Dashboardと両方のファームウェアを更新してください。");
+		return this.clockEstimate;
+	}
+	async sendMotion(frame) {
+		const command = this.command, generation = this.generation;
+		if (!command || !this.device?.gatt.connected) throw Error("Bluetooth接続待ち");
+		const bytes = encodeConsistMotion(frame);
+		return this.runGatt(() => {
+			if (this.command !== command || this.generation !== generation) throw Error("Bluetoothの接続が途絶しました。");
+			return command.writeValueWithoutResponse(bytes);
+		});
 	}
 	close() {
 		this.closed = true;

@@ -1,9 +1,10 @@
-// Tabs only negotiate membership. Motion and ongoing synchronization live in
-// the inverters, so a hidden managing page does not have to run a timer.
+// Membership and common motion stay inside the host. Only a compact local
+// trajectory goes to each inverter; there is no inverter-to-inverter BLE link.
 export class ConsistCoordinator {
-	constructor({session, send, onOffer, onStatus, onError, channel}) {
-		Object.assign(this, {session, send, onOffer, onStatus, onError});
+	constructor({session, send, sendMotion, calibrate, onOffer, onStatus, onError, channel}) {
+		Object.assign(this, {session, send, sendMotion, calibrate, onOffer, onStatus, onError});
 		const page = globalThis.location?.href?.split("#")[0] ?? "";
+		this.scope = page;
 		this.channel = channel ?? (globalThis.BroadcastChannel ? new BroadcastChannel(`vvvf-consist-v1:${page}`) : null);
 		this.peers = new Map();
 		this.pending = new Map();
@@ -28,6 +29,7 @@ export class ConsistCoordinator {
 		const changed = identity.state !== this.identity.state || identity.token !== this.identity.token ||
 			identity.manager !== this.identity.manager;
 		Object.assign(this.identity, identity);
+		if (identity.state === "off" && this.worker) this.stopWorker();
 		if (changed) { this.announce(); this.onStatus?.(identity.state); }
 	}
 	allowOffer() { this.ready = true; this.offer(); }
@@ -86,7 +88,8 @@ export class ConsistCoordinator {
 				const pair = this.pair();
 				if (this.busy || this.identity.state !== "off" || pair.length !== 2 ||
 					!pair.some(p => p.session === message.from) || !pair.some(p => p.session === this.session) ||
-					value.address !== peer.address || value.type !== peer.address_type) throw Error("併結相手の状態が変わりました。");
+					value.version !== 2 || !Array.isArray(value.members) || value.members.length !== 2 ||
+					!value.members.includes(this.session) || !value.members.includes(message.from)) throw Error("併結相手の状態が変わりました。");
 				await this.configure(value);
 			} else if (this.reservation === value.token) {
 				await this.send("uncouple");
@@ -103,12 +106,18 @@ export class ConsistCoordinator {
 		this.identity.state = "waiting";
 		this.announce();
 		try {
-			await this.send("couple", value);
+			await this.send("couple", {version: 2, token: value.token});
 			this.identity.token = value.token;
 			this.identity.manager = true;
+			if (this.sendMotion) {
+				this.clock = await this.calibrate();
+				this.startWorker(value);
+			}
 			this.announce();
 			this.onStatus?.("waiting");
 		} catch (error) {
+			await this.send("uncouple").catch(() => {});
+			this.stopWorker();
 			this.identity.state = "off";
 			this.reservation = null;
 			this.announce();
@@ -136,29 +145,83 @@ export class ConsistCoordinator {
 		this.busy = true;
 		const bytes = crypto.getRandomValues(new Uint8Array(8));
 		const token = Array.from(bytes, b => b.toString(16).padStart(2, "0")).join("");
-		const local = {address: other.address, type: other.address_type, token};
-		const remote = {address: this.identity.address, type: this.identity.address_type, token};
+		const value = {version: 2, token, members: [this.session, other.session]};
 		try {
-			// The smaller BLE address initiates the direct connection. Configure
-			// the peripheral first, so it can recognize that incoming connection.
-			if (this.identity.address < other.address) {
-				await this.rpc(other.session, "configure", remote);
-				await this.configure(local);
-			} else {
-				await this.configure(local);
-				await this.rpc(other.session, "configure", remote);
-			}
+			await this.rpc(other.session, "configure", value);
+			await this.configure(value);
 		} catch (error) {
 			// Roll back both ends, including an acknowledgement lost in transit.
 			await Promise.allSettled([
-				this.reservation === token ? this.send("uncouple") : Promise.resolve(),
+				this.send("uncouple"),
 				this.rpc(other.session, "rollback", {token}),
 			]);
 			this.reservation = null;
 			this.onError?.(error.message);
 		} finally { this.busy = false; }
 	}
+	startWorker(value) {
+		this.stopWorker();
+		const worker = new Worker(new URL("./consist-worker.js?v=20261102-host", import.meta.url), {type: "module"});
+		this.worker = worker;
+		worker.onmessage = ({data}) => {
+			if (this.identity?.token !== value.token || !this.identity.manager) return;
+			if (data.type === "motion") { this.motionWanted = data.frame; void this.flushMotion(); }
+			if (data.type === "stop" && data.token === value.token) void this.send("uncouple").catch(() => {});
+		};
+		worker.onerror = () => {
+			if (this.identity?.token !== value.token) return;
+			this.onError?.("併結の共通処理が停止しました。再接続してください。");
+			this.post({type: "leave"});
+			void this.send("uncouple").catch(() => {});
+			this.stopWorker();
+		};
+		worker.postMessage({type: "init", session: this.session, scope: this.scope,
+			token: value.token, members: value.members});
+		if (this.lastSample) this.sample(...this.lastSample);
+	}
+	stopWorker() {
+		if (this.worker) {
+			const worker = this.worker;
+			worker.postMessage({type: "detach"});
+			setTimeout(() => worker.terminate(), 100);
+		}
+		this.worker = null;
+		this.motionWanted = null;
+	}
+	sample(state, patterns, client, clock) {
+		this.lastSample = [state, patterns, client, clock];
+		const info = this.identity;
+		if (!this.worker || !info?.manager || !state || !info.token) return;
+		const pattern = info.pattern ?? state.pattern;
+		const drive = patterns?.find(p => p.id === pattern)?.drive;
+		const offset = (clock ?? this.clock)?.offset;
+		if (!drive || !Number.isFinite(offset)) return;
+		const sample = {token: info.token, pattern, drive, offset,
+			web: state.web, speed: state.speed_kmh, owned: !!client?.control,
+			revision: info.revision, notch: info.notch, hold: !!info.hold,
+			sequence: info.sequence ?? 0, active: info.state === "active"};
+		this.worker.postMessage({type: "sample", sample});
+	}
+	controlNotch(notch) {
+		if (!this.worker || this.identity?.state !== "active" || !this.identity.manager) return false;
+		this.worker.postMessage({type: "input", notch});
+		return true;
+	}
+	async flushMotion() {
+		if (this.motionSending) return;
+		this.motionSending = true;
+		try {
+			while (this.motionWanted) {
+				const frame = this.motionWanted;
+				this.motionWanted = null;
+				if (this.identity?.token !== frame.token || !this.identity.manager) break;
+				await this.sendMotion(frame);
+			}
+		} catch (error) { this.onError?.(error.message); }
+		finally { this.motionSending = false; }
+	}
 	disconnected() {
+		this.stopWorker();
 		clearTimeout(this.settleTimer);
 		if (this.identity) this.post({type: "leave"});
 		this.identity = null;
@@ -174,7 +237,6 @@ export class ConsistCoordinator {
 	}
 }
 function validIdentity(value) {
-	return value?.version === 1 && /^[0-9a-f]{12}$/.test(value.address) &&
-		(value.address_type === 0 || value.address_type === 1) &&
+	return value?.version === 2 && /^[0-9a-f]{12}$/.test(value.address) &&
 		["off", "waiting", "active"].includes(value.state);
 }
