@@ -5,7 +5,7 @@
 		<meta name="viewport" content="width=device-width,initial-scale=1" />
 		<title>VVVF nano Dashboard</title>
 		<link rel="icon" type="image/png" href="assets/icon.png" />
-		<link rel="stylesheet" href="style.css?v=20261024-genei-gothic-p" />
+		<link rel="stylesheet" href="style.css?v=20261102-pattern-levels" />
 		<script type="module" src="favicon.js"></script>
 	</head>
 	<body>
@@ -152,7 +152,13 @@
 							</div>
 						</div>
 						<section class="patterns">
-							<label>パターン選択</label>
+							<section class="pattern-heading">
+								<span>パターン選択</span>
+								<label class="pattern-filter">
+									<input id="two-level-only" type="checkbox" disabled />
+									2レベルのみ選択
+								</label>
+							</section>
 							<div
 								id="pattern-list"
 								role="listbox"
@@ -164,6 +170,6 @@
 				</section>
 			</main>
 		</div>
-		<script type="module" src="app.js?v=20261024-scope-joins"></script>
+		<script type="module" src="app.js?v=20261102-pattern-levels"></script>
 	</body>
 </html>

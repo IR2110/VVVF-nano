@@ -668,11 +668,30 @@ header .page-title {
 	width: 524px
 }
 
-.patterns>label {
-	display: block;
+.pattern-heading {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 8px;
 	font-size: 23px;
 	line-height: 40px;
 	padding-left: 10px
+}
+
+.pattern-filter {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	font-size: 16px;
+	cursor: pointer;
+	white-space: nowrap
+}
+
+.pattern-filter input {
+	width: 18px;
+	height: 18px;
+	margin: 0;
+	accent-color: #002060
 }
 
 .patterns>div {
@@ -1117,7 +1136,8 @@ header .page-title {
 	.speed-section #message { grid-area: message; font-size: 12px; }
 	.speed-section .keys { display: none; }
 	.patterns { position: static; width: 100%; margin-top: 10px; }
-	.patterns > label { font-size: 15px; line-height: 1.5; padding: 0; margin-bottom: 6px; }
+	.pattern-heading { font-size: 15px; line-height: 1.5; padding: 0; margin-bottom: 6px; flex-wrap: wrap; }
+	.pattern-filter { min-height: 44px; font-size: 13px; }
 	.patterns > div { height: 188px; border-width: 6px; }
 	.pattern { height: auto; min-height: 44px; font-size: 12px; line-height: 1.4; padding: 7px 9px; white-space: normal; overflow-wrap: anywhere; }
 	.patterns > p { font-size: 11px; }

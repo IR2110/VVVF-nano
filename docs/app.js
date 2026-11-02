@@ -20,6 +20,7 @@ let state = null,
 	notchInFlightAt = 0,
 	notchSending = false;
 let masconDrag = null;
+let patterns = [];
 let frame = null,
 	waveDirty = true,
 	patternsLoaded = false,
@@ -351,13 +352,27 @@ async function loadPatterns() {
 	const list = await r.json();
 	if (!Array.isArray(list) || !list.length)
 		throw Error("パターン情報が不正です");
+	patterns = list;
+	const filter = $("two-level-only");
+	filter.disabled = !list.every((p) => p.levels === 2 || p.levels === 3);
+	if (filter.disabled) filter.checked = false;
+	filter.title = filter.disabled ? "この機能にはレベル情報に対応したファームウェアが必要です" : "";
+	patternsLoaded = true;
+	renderPatterns();
+}
+$("two-level-only").addEventListener("change", renderPatterns);
+function renderPatterns() {
 	$("pattern-list").replaceChildren();
-	for (const p of list) {
+	for (const p of patterns) {
+		if ($("two-level-only").checked && p.levels !== 2) continue;
 		const b = document.createElement("button");
 		b.className = "pattern";
 		b.dataset.id = p.id;
 		b.textContent = p.name;
 		b.role = "option";
+		const selected = p.id === state?.pattern;
+		b.classList.toggle("selected", selected);
+		b.setAttribute("aria-selected", String(selected));
 		b.addEventListener("click", async () => {
 			try {
 				await command("pattern", p.id);
@@ -368,7 +383,6 @@ async function loadPatterns() {
 		});
 		$("pattern-list").append(b);
 	}
-	patternsLoaded = true;
 	refreshControls();
 }
 async function pollState() {
