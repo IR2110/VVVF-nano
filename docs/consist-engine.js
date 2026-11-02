@@ -8,15 +8,17 @@ export class ConsistEngine {
 		this.samples = new Map();
 		this.sequence = 0;
 		this.lastSent = new Map();
+		this.accepted = new Map();
 	}
 	receive(id, message) {
-		if (!this.members.includes(id)) return;
+		if (!this.members.includes(id) || this.stopped) return;
 		if (message.type === "detach") { this.stop(); return; }
 		if (message.type === "input") {
 			const source = this.samples.get(id);
 			if (!this.model || !source?.owned || !source.web || !Number.isInteger(message.notch) ||
 				message.notch < -source.spec.brake || message.notch > source.spec.power) return;
 			this.command = {actor: id, notch: message.notch, hold: false};
+			this.accepted.set(id, message.request ?? 0);
 			this.rebuild();
 			return;
 		}
@@ -40,7 +42,7 @@ export class ConsistEngine {
 		}
 		this.tick();
 	}
-	rebuild(start = false) {
+	rebuild(start = false, notify = true) {
 		if (this.stopped || this.members.some(id => !this.samples.has(id))) return;
 		const at = this.now() + 80;
 		const speed = start ? 0 : advanceMotion(this.model, at);
@@ -51,6 +53,12 @@ export class ConsistEngine {
 		});
 		const coeff = values.flatMap((value, index) => coefficients(this.samples.get(this.members[index]).spec, value.effective, this.command.hold));
 		this.model = {at, speed: Math.min(limit, speed), limit, coeff, values, sequence: ++this.sequence};
+		// Display the accepted common command on the host, without waiting for
+		// a BLE round trip or allowing an older telemetry snapshot to rewind it.
+		if (notify) for (const [index, id] of this.members.entries()) this.emit(id, {
+			type: "notch", notch: values[index].display, pattern: this.samples.get(id).pattern,
+			request: this.accepted.get(id) ?? 0,
+		});
 		this.lastRefresh = this.now();
 		this.lastSent.clear();
 		this.tick();
@@ -60,7 +68,7 @@ export class ConsistEngine {
 		const now = this.now();
 		const speed = advanceMotion(this.model, now);
 		if (now - this.lastRefresh >= 2000 && speed > 0 && speed < this.model.limit && motionRate(this.model.coeff, speed) !== 0) {
-			this.rebuild();
+			this.rebuild(false, false);
 			return;
 		}
 		for (const [index, id] of this.members.entries()) {

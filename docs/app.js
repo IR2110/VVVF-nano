@@ -6,8 +6,8 @@ import {
 	pwmBadgeMode,
 	STATE_PERIOD_MS,
 } from "./telemetry.js";
-import { BleTransport } from "./bluetooth.js?v=20261102-host";
-import { ConsistCoordinator } from "./consist.js?v=20261102-host";
+import { BleTransport } from "./bluetooth.js?v=20261102-feedback";
+import { ConsistCoordinator } from "./consist.js?v=20261102-feedback";
 const session = crypto.randomUUID();
 const bluetooth = new BleTransport(session);
 const $ = (id) => document.getElementById(id);
@@ -21,6 +21,7 @@ let state = null,
 	notchInFlightAt = 0,
 	notchSending = false;
 let masconDrag = null;
+let hostNotch = null;
 let patterns = [];
 let frame = null,
 	waveDirty = true,
@@ -42,12 +43,25 @@ const waveDialog = $("wave-dialog");
 const consistDialog = $("consist-dialog");
 const coupling = new ConsistCoordinator({
 	session, send: (action, value) => command(action, value),
-	sendMotion: frame => bluetooth.sendMotion(frame), calibrate: () => bluetooth.syncClock(),
+	sendMotion: (frame, current) => bluetooth.sendMotion(frame, current), calibrate: () => bluetooth.syncClock(),
 	onOffer: () => { if (!consistDialog.open) consistDialog.showModal(); },
 	onStatus: status => {
+		if (status === "off") {
+			notchInFlight = hostNotch?.notch ?? null;
+			notchInFlightAt = performance.now();
+			hostNotch = null;
+		}
 		const label = $("consist-status");
 		label.textContent = status === "active" ? "併結中" : status === "waiting" ? "併結待機：両方の停止・Web操作開始を待っています" : "";
 		label.hidden = status === "off";
+	},
+	onNotch: (notch, pattern) => {
+		hostNotch = {notch, pattern};
+		notchInFlight = null;
+		if (!masconDrag && state?.pattern === pattern) {
+			$("mascon").value = notch;
+			setNotchBadge(notch);
+		}
 	},
 	onError: text => message(text),
 });
@@ -205,6 +219,10 @@ async function fetchApi(path, options = {}) {
 	return result;
 }
 function command(action, value) {
+	// Teardown must survive an ownership change and run ahead of display work.
+	if (action === "uncouple") return fetchApi("/api/command", {
+		body: JSON.stringify({action, session, value}),
+	});
 	const commandEpoch = epoch;
 	const result = commandQueue
 		.catch(() => {})
@@ -355,11 +373,12 @@ function render(s) {
 	buildScale(s.power_notches, s.brake_notches);
 	// The acknowledgement can arrive before the next drive telemetry snapshot.
 	// Hold the requested notch until telemetry catches up.
-	if (!notchSending && (notchInFlight === s.mascon ||
-		performance.now() - notchInFlightAt > (bluetooth.consist?.state === "active" ? 150 : 1500))) notchInFlight = null;
+	const displayedNotch = hostNotch && hostNotch.pattern === s.pattern ? hostNotch.notch : s.mascon;
+	if (!notchSending && (notchInFlight === displayedNotch ||
+		(!coupling.worker && performance.now() - notchInFlightAt > 1500))) notchInFlight = null;
 	if (!masconDrag && notchWanted === null && notchInFlight === null) {
-		$("mascon").value = s.mascon;
-		setNotchBadge(s.mascon);
+		$("mascon").value = displayedNotch;
+		setNotchBadge(displayedNotch);
 	}
 	document.querySelectorAll(".pattern").forEach((b) => {
 		const selected = Number(b.dataset.id) === s.pattern;

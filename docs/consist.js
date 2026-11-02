@@ -1,8 +1,8 @@
 // Membership and common motion stay inside the host. Only a compact local
 // trajectory goes to each inverter; there is no inverter-to-inverter BLE link.
 export class ConsistCoordinator {
-	constructor({session, send, sendMotion, calibrate, onOffer, onStatus, onError, channel}) {
-		Object.assign(this, {session, send, sendMotion, calibrate, onOffer, onStatus, onError});
+	constructor({session, send, sendMotion, calibrate, onOffer, onStatus, onNotch, onError, channel}) {
+		Object.assign(this, {session, send, sendMotion, calibrate, onOffer, onStatus, onNotch, onError});
 		const page = globalThis.location?.href?.split("#")[0] ?? "";
 		this.scope = page;
 		this.channel = channel ?? (globalThis.BroadcastChannel ? new BroadcastChannel(`vvvf-consist-v1:${page}`) : null);
@@ -11,6 +11,7 @@ export class ConsistCoordinator {
 		this.identity = null;
 		this.ready = this.asked = this.busy = false;
 		this.serial = 0;
+		this.inputRequest = 0;
 		if (this.channel) this.channel.onmessage = event => void this.receive(event.data);
 	}
 	post(message) { this.channel?.postMessage({...message, from: this.session}); }
@@ -26,6 +27,12 @@ export class ConsistCoordinator {
 	}
 	update(identity) {
 		if (!this.identity || !validIdentity(identity)) return;
+		// Notifications already in the BLE queue must not restart a detached pair.
+		if (this.detachingToken && identity.token === this.detachingToken && identity.state !== "off") return;
+		if (identity.state === "off") {
+			this.detachingToken = null;
+			clearTimeout(this.detachTimer);
+		}
 		const changed = identity.state !== this.identity.state || identity.token !== this.identity.token ||
 			identity.manager !== this.identity.manager;
 		Object.assign(this.identity, identity);
@@ -65,7 +72,7 @@ export class ConsistCoordinator {
 			// Closing a managing tab also asks the surviving manager to detach.
 			// This covers a lost BLE leave on an OS connection shared with observers.
 			if (peer?.manager && this.identity?.manager && peer.token && peer.token === this.identity.token) {
-				try { await this.send("uncouple"); } catch {} // Physical disconnect is the other teardown path.
+				await this.detach();
 			}
 			return;
 		}
@@ -161,19 +168,22 @@ export class ConsistCoordinator {
 	}
 	startWorker(value) {
 		this.stopWorker();
-		const worker = new Worker(new URL("./consist-worker.js?v=20261102-host", import.meta.url), {type: "module"});
+		const worker = new Worker(new URL("./consist-worker.js?v=20261102-feedback", import.meta.url), {type: "module"});
 		this.worker = worker;
 		worker.onmessage = ({data}) => {
-			if (this.identity?.token !== value.token || !this.identity.manager) return;
+			if (this.worker !== worker || this.identity?.token !== value.token || !this.identity.manager) return;
+			if (data.type === "notch" && (!this.pendingInput || data.request >= this.pendingInput)) {
+				this.pendingInput = 0;
+				this.onNotch?.(data.notch, data.pattern);
+			}
 			if (data.type === "motion") { this.motionWanted = data.frame; void this.flushMotion(); }
-			if (data.type === "stop" && data.token === value.token) void this.send("uncouple").catch(() => {});
+			if (data.type === "stop" && data.token === value.token) void this.detach();
 		};
 		worker.onerror = () => {
-			if (this.identity?.token !== value.token) return;
+			if (this.worker !== worker || this.identity?.token !== value.token) return;
 			this.onError?.("併結の共通処理が停止しました。再接続してください。");
 			this.post({type: "leave"});
-			void this.send("uncouple").catch(() => {});
-			this.stopWorker();
+			void this.detach();
 		};
 		worker.postMessage({type: "init", session: this.session, scope: this.scope,
 			token: value.token, members: value.members});
@@ -182,11 +192,37 @@ export class ConsistCoordinator {
 	stopWorker() {
 		if (this.worker) {
 			const worker = this.worker;
+			worker.onmessage = worker.onerror = null;
 			worker.postMessage({type: "detach"});
 			setTimeout(() => worker.terminate(), 100);
 		}
 		this.worker = null;
+		this.pendingInput = 0;
 		this.motionWanted = null;
+	}
+	async detach() {
+		const token = this.identity?.token;
+		if (!token || this.detachAttempt) return;
+		if (this.detachingToken !== token) {
+			this.detachingToken = token;
+			this.stopWorker();
+			this.identity.state = "off";
+			this.announce();
+			this.onStatus?.("off");
+		}
+		clearTimeout(this.detachTimer);
+		const attempt = {};
+		this.detachAttempt = attempt;
+		try { await this.send("uncouple", {token}); }
+		catch (error) { if (this.detachingToken === token) this.onError?.(error.message); }
+		finally {
+			if (this.detachAttempt === attempt) {
+				this.detachAttempt = null;
+				// A lost acknowledgement/notification must not leave the firmware
+				// following its old trajectory until the user closes the tab.
+				if (this.detachingToken === token) this.detachTimer = setTimeout(() => void this.detach(), 250);
+			}
+		}
 	}
 	sample(state, patterns, client, clock) {
 		this.lastSample = [state, patterns, client, clock];
@@ -201,10 +237,12 @@ export class ConsistCoordinator {
 			revision: info.revision, notch: info.notch, hold: !!info.hold,
 			sequence: info.sequence ?? 0, active: info.state === "active"};
 		this.worker.postMessage({type: "sample", sample});
+		if (!sample.owned) this.pendingInput = 0;
 	}
 	controlNotch(notch) {
 		if (!this.worker || this.identity?.state !== "active" || !this.identity.manager) return false;
-		this.worker.postMessage({type: "input", notch});
+		this.pendingInput = ++this.inputRequest;
+		this.worker.postMessage({type: "input", notch, request: this.pendingInput});
 		return true;
 	}
 	async flushMotion() {
@@ -215,7 +253,8 @@ export class ConsistCoordinator {
 				const frame = this.motionWanted;
 				this.motionWanted = null;
 				if (this.identity?.token !== frame.token || !this.identity.manager) break;
-				await this.sendMotion(frame);
+				const worker = this.worker;
+				await this.sendMotion(frame, () => this.worker === worker && this.identity?.token === frame.token);
 			}
 		} catch (error) { this.onError?.(error.message); }
 		finally { this.motionSending = false; }
@@ -225,6 +264,9 @@ export class ConsistCoordinator {
 		clearTimeout(this.settleTimer);
 		if (this.identity) this.post({type: "leave"});
 		this.identity = null;
+		this.detachingToken = null;
+		this.detachAttempt = null;
+		clearTimeout(this.detachTimer);
 		this.ready = this.asked = false;
 		this.reservation = this.candidate = null;
 		for (const pending of this.pending.values()) {

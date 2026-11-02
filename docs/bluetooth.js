@@ -440,11 +440,12 @@ export class BleTransport {
 		if (!this.clockEstimate) throw Error("Dashboardと両方のファームウェアを更新してください。");
 		return this.clockEstimate;
 	}
-	async sendMotion(frame) {
+	async sendMotion(frame, current = () => true) {
 		const command = this.command, generation = this.generation;
 		if (!command || !this.device?.gatt.connected) throw Error("Bluetooth接続待ち");
 		const bytes = encodeConsistMotion(frame);
 		return this.runGatt(() => {
+			if (!current()) return;
 			if (this.command !== command || this.generation !== generation) throw Error("Bluetoothの接続が途絶しました。");
 			return command.writeValueWithoutResponse(bytes);
 		});
