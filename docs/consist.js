@@ -168,7 +168,8 @@ export class ConsistCoordinator {
 	}
 	startWorker(value) {
 		this.stopWorker();
-		const worker = new Worker(new URL("./consist-worker.js?v=20261102-feedback", import.meta.url), {type: "module"});
+		this.inputRequest = 0;
+		const worker = new Worker(new URL("./consist-worker.js?v=20261102-immediate", import.meta.url), {type: "module"});
 		this.worker = worker;
 		worker.onmessage = ({data}) => {
 			if (this.worker !== worker || this.identity?.token !== value.token || !this.identity.manager) return;
@@ -234,8 +235,7 @@ export class ConsistCoordinator {
 		if (!drive || !Number.isFinite(offset)) return;
 		const sample = {token: info.token, pattern, drive, offset,
 			web: state.web, speed: state.speed_kmh, owned: !!client?.control,
-			revision: info.revision, notch: info.notch, hold: !!info.hold,
-			sequence: info.sequence ?? 0, active: info.state === "active"};
+			revision: info.revision, notch: info.notch, hold: !!info.hold, command: info.command ?? 0};
 		this.worker.postMessage({type: "sample", sample});
 		if (!sample.owned) this.pendingInput = 0;
 	}
@@ -254,7 +254,9 @@ export class ConsistCoordinator {
 				this.motionWanted = null;
 				if (this.identity?.token !== frame.token || !this.identity.manager) break;
 				const worker = this.worker;
-				await this.sendMotion(frame, () => this.worker === worker && this.identity?.token === frame.token);
+				await this.sendMotion(frame, () => this.worker === worker && this.identity?.token === frame.token &&
+					(frame.request ?? 0) >= this.inputRequest &&
+					(!this.motionWanted || this.motionWanted.sequence <= frame.sequence));
 			}
 		} catch (error) { this.onError?.(error.message); }
 		finally { this.motionSending = false; }

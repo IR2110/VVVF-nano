@@ -6,8 +6,8 @@ import {
 	pwmBadgeMode,
 	STATE_PERIOD_MS,
 } from "./telemetry.js";
-import { BleTransport } from "./bluetooth.js?v=20261102-feedback";
-import { ConsistCoordinator } from "./consist.js?v=20261102-feedback";
+import { BleTransport } from "./bluetooth.js?v=20261102-immediate";
+import { ConsistCoordinator } from "./consist.js?v=20261102-immediate";
 const session = crypto.randomUUID();
 const bluetooth = new BleTransport(session);
 const $ = (id) => document.getElementById(id);

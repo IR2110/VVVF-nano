@@ -1,3 +1,4 @@
+import {advanceMotion} from "./consist-model.js?v=20261102-immediate";
 export const BLE_UUID = {
 	service: "8f5a0001-31cd-4850-9c6a-ff7b4c4f6e61",
 	command: "8f5a0002-31cd-4850-9c6a-ff7b4c4f6e61",
@@ -15,6 +16,7 @@ export function encodeConsistMotion(frame) {
 	view.setFloat32(20, frame.speed, true); view.setFloat32(24, frame.limit, true);
 	view.setUint32(28, frame.revision, true); view.setUint32(32, frame.pattern, true);
 	frame.coeff.forEach((value, i) => view.setFloat32(36 + i * 4, value, true));
+	view.setUint32(60, frame.command ?? 0, true);
 	return bytes;
 }
 const decoder = new TextDecoder(),
@@ -443,11 +445,17 @@ export class BleTransport {
 	async sendMotion(frame, current = () => true) {
 		const command = this.command, generation = this.generation;
 		if (!command || !this.device?.gatt.connected) throw Error("Bluetooth接続待ち");
-		const bytes = encodeConsistMotion(frame);
 		return this.runGatt(() => {
 			if (!current()) return;
 			if (this.command !== command || this.generation !== generation) throw Error("Bluetoothの接続が途絶しました。");
-			return command.writeValueWithoutResponse(bytes);
+			// Re-sample the PC curve when the GATT lock is actually acquired.
+			// Never write a snapshot that aged while another operation held it.
+			const now = performance.timeOrigin + performance.now();
+			const elapsed = now - frame.host_at;
+			const live = Number.isFinite(frame.host_at) ? {...frame,
+				at_ms: (frame.at_ms + Math.round(elapsed)) >>> 0,
+				speed: advanceMotion({...frame, at: frame.host_at}, now)} : frame;
+			return command.writeValueWithoutResponse(encodeConsistMotion(live));
 		});
 	}
 	close() {

@@ -1,4 +1,4 @@
-import {driveInfo, mapNotch, coefficients, motionRate, advanceMotion} from "./consist-model.js";
+import {driveInfo, mapNotch, coefficients, motionRate, advanceMotion} from "./consist-model.js?v=20261102-immediate";
 
 // Runs once per pair on the host's leader Worker. Endpoint speed telemetry is
 // used for the stopped/start gate; the shared trajectory is authoritative after it.
@@ -7,6 +7,7 @@ export class ConsistEngine {
 		Object.assign(this, {members, token, emit, now});
 		this.samples = new Map();
 		this.sequence = 0;
+		this.commandId = 0;
 		this.lastSent = new Map();
 		this.accepted = new Map();
 	}
@@ -44,15 +45,19 @@ export class ConsistEngine {
 	}
 	rebuild(start = false, notify = true) {
 		if (this.stopped || this.members.some(id => !this.samples.has(id))) return;
-		const at = this.now() + 80;
-		const speed = start ? 0 : advanceMotion(this.model, at);
+		const now = this.now();
+		// Input changes the PC's curve now. There is no future activation slot
+		// and no acknowledgement/timer between a notch input and its emission.
+		const at = now;
+		const speed = start ? 0 : advanceMotion(this.model, now);
 		const limit = Math.min(...this.members.map(id => this.samples.get(id).spec.limit));
 		const values = this.members.map(id => {
 			const other = this.members.find(member => member !== id);
 			return mapNotch(this.command.notch, this.samples.get(id).spec, this.samples.get(other).spec, id === this.command.actor);
 		});
 		const coeff = values.flatMap((value, index) => coefficients(this.samples.get(this.members[index]).spec, value.effective, this.command.hold));
-		this.model = {at, speed: Math.min(limit, speed), limit, coeff, values, sequence: ++this.sequence};
+		if (notify) ++this.commandId;
+		this.model = {at, speed: Math.min(limit, speed), limit, coeff, values, sequence: ++this.sequence, command: this.commandId};
 		// Display the accepted common command on the host, without waiting for
 		// a BLE round trip or allowing an older telemetry snapshot to rewind it.
 		if (notify) for (const [index, id] of this.members.entries()) this.emit(id, {
@@ -67,16 +72,22 @@ export class ConsistEngine {
 		if (!this.model || this.stopped) return;
 		const now = this.now();
 		const speed = advanceMotion(this.model, now);
-		if (now - this.lastRefresh >= 2000 && speed > 0 && speed < this.model.limit && motionRate(this.model.coeff, speed) !== 0) {
+		const rate = motionRate(this.model.coeff, speed);
+		const unconfirmed = this.members.some(id => this.samples.get(id).command !== this.model.command);
+		if (now - this.lastRefresh >= 50 && (unconfirmed ||
+			(rate !== 0 && speed > 0 && speed < this.model.limit) || (rate > 0 && speed === 0))) {
 			this.rebuild(false, false);
 			return;
 		}
 		for (const [index, id] of this.members.entries()) {
 			const sample = this.samples.get(id);
-			if (sample.sequence >= this.model.sequence || now - (this.lastSent.get(id) ?? -Infinity) < 150) continue;
-			this.lastSent.set(id, now);
+			if (this.lastSent.get(id) === this.model.sequence) continue;
+			this.lastSent.set(id, this.model.sequence);
 			this.emit(id, {type: "motion", frame: {
 				token: this.token, sequence: this.model.sequence,
+				command: this.model.command,
+				request: this.accepted.get(id) ?? 0,
+				host_at: this.model.at,
 				at_ms: Math.round(this.model.at + sample.offset) >>> 0,
 				speed: this.model.speed, limit: this.model.limit, coeff: this.model.coeff,
 				notch: this.model.values[index].effective, display: this.model.values[index].display,

@@ -31,8 +31,10 @@ export function motionRate(coeff, speed) {
 export function advanceMotion(model, time) {
 	let speed = model.speed, elapsed = Math.max(0, time - model.at);
 	while (elapsed > 0) {
+		const rate = motionRate(model.coeff, speed);
+		if (rate === 0 || (speed === 0 && rate < 0) || (speed === model.limit && rate > 0)) break;
 		const step = Math.min(10, elapsed), dt = step / 1000;
-		const midpoint = Math.max(0, Math.min(model.limit, speed + motionRate(model.coeff, speed) * dt / 2));
+		const midpoint = Math.max(0, Math.min(model.limit, speed + rate * dt / 2));
 		speed = Math.max(0, Math.min(model.limit, speed + motionRate(model.coeff, midpoint) * dt));
 		elapsed -= step;
 	}

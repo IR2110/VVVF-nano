@@ -1,4 +1,4 @@
-import {ConsistEngine} from "./consist-engine.js?v=20261102-feedback";
+import {ConsistEngine} from "./consist-engine.js?v=20261102-immediate";
 
 // A DedicatedWorker + BroadcastChannel works on Android as well as desktop;
 // it does not require SharedWorker support or an installed helper process.
