@@ -157,6 +157,7 @@ export class BleTransport {
 		this.everJoined = false;
 		this.joined = false;
 		this.onMembership = null;
+		this.consist = null;
 		this.onJoin = null;
 		this.gattQueue = Promise.resolve();
 		this.device = null;
@@ -176,7 +177,8 @@ export class BleTransport {
 		this.stream = null;
 		this.listener = (e) => this.receive(e.target.value);
 	}
-	async connect() {
+	async connect({choose = false} = {}) {
+		if (choose && !this.device) this.chooseDevice = true;
 		this.closed = false;
 		if (this.connecting) return this.connecting;
 		clearTimeout(this.reconnectTimer);
@@ -197,6 +199,8 @@ export class BleTransport {
 		if (!navigator.bluetooth)
 			throw Error("このブラウザはWeb Bluetoothに対応していません。Windows・Mac・Androidの対応ブラウザ（Chromeなど）で開いてください。");
 		if (!this.device) {
+			const choose = this.chooseDevice;
+			this.chooseDevice = false;
 			const granted = navigator.bluetooth.getDevices
 				? await navigator.bluetooth.getDevices()
 				: [];
@@ -205,7 +209,7 @@ export class BleTransport {
 				(d) => d.name === "VVVF nano" || d.name?.startsWith("VVVF nano ") || d.id === previous,
 			);
 			this.device =
-				known.length === 1
+				known.length === 1 && !choose
 					? known[0]
 					: await navigator.bluetooth.requestDevice({
 							filters: [{ name: "VVVF nano" }, { namePrefix: "VVVF nano " }],
@@ -275,6 +279,7 @@ export class BleTransport {
 		}
 		this.client = client;
 		this.web = info.web;
+		this.consist = info.consist || null;
 		this.onMembership?.(client);
 	}
 	// Web Locks serialize selector/read pairs across tabs sharing a GATT link.
@@ -340,6 +345,7 @@ export class BleTransport {
 		this.state = null;
 		this.client = null;
 		this.web = false;
+		this.consist = null;
 		this.joined = false;
 		this.onMembership?.(null);
 		this.reader = new FragmentReader();

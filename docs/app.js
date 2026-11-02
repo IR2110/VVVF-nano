@@ -6,7 +6,8 @@ import {
 	pwmBadgeMode,
 	STATE_PERIOD_MS,
 } from "./telemetry.js";
-import { BleTransport } from "./bluetooth.js?v=20261023-wavepack";
+import { BleTransport } from "./bluetooth.js?v=20261102-consist";
+import { ConsistCoordinator } from "./consist.js?v=20261102-consist";
 const session = crypto.randomUUID();
 const bluetooth = new BleTransport(session);
 const $ = (id) => document.getElementById(id);
@@ -38,7 +39,26 @@ function acceptWave(buffer) {
 }
 bluetooth.onWave = acceptWave;
 const waveDialog = $("wave-dialog");
+const consistDialog = $("consist-dialog");
+const coupling = new ConsistCoordinator({
+	session, send: (action, value) => command(action, value),
+	onOffer: () => { if (!consistDialog.open) consistDialog.showModal(); },
+	onStatus: status => {
+		const label = $("consist-status");
+		label.textContent = status === "active" ? "併結中" : status === "waiting" ? "併結待機：両方の停止・Web操作開始を待っています" : "";
+		label.hidden = status === "off";
+	},
+	onError: text => message(text),
+});
+$("consist-yes").addEventListener("click", () => {consistDialog.close(); void coupling.accept();});
+$("consist-no").addEventListener("click", () => consistDialog.close());
+waveDialog.addEventListener("close", () => coupling.allowOffer());
 bluetooth.onMembership = (client) => {
+	if (client) coupling.update({...bluetooth.consist, manager: !!client.manager});
+	else {
+		coupling.disconnected();
+		if (consistDialog.open) consistDialog.close();
+	}
 	if (!client?.wave) {frame = null; waveDirty = true;}
 	if (!client && waveDialog.open) waveDialog.close();
 	const canControl = !!client?.control && bluetooth.web;
@@ -47,7 +67,9 @@ bluetooth.onMembership = (client) => {
 	refreshControls();
 };
 bluetooth.onJoin = (client) => {
+	coupling.joined({...bluetooth.consist, manager: !!client.manager});
 	if (!client.first && !waveDialog.open) waveDialog.showModal();
+	if (!waveDialog.open) coupling.allowOffer();
 };
 async function setWave(show) {
 	try {await command("wave", show);}
@@ -127,6 +149,7 @@ const errors = {
 	owner: "操作権が解除されました。Web操作を開始してください。",
 	persistence: "パターンを保存できませんでした。",
 	notch: "ノッチが範囲外です。",
+	couple: "併結を開始できません。両方のVVVF nanoと画面を更新して再接続してください。",
 };
 function message(text = "") {
 	$("message").textContent = text;
@@ -325,7 +348,7 @@ function render(s) {
 	// The acknowledgement can arrive before the next drive telemetry snapshot.
 	// Hold the requested notch until telemetry catches up.
 	if (!notchSending && (notchInFlight === s.mascon ||
-		performance.now() - notchInFlightAt > 1500)) notchInFlight = null;
+		performance.now() - notchInFlightAt > (bluetooth.consist?.state === "active" ? 150 : 1500))) notchInFlight = null;
 	if (!masconDrag && notchWanted === null && notchInFlight === null) {
 		$("mascon").value = s.mascon;
 		setNotchBadge(s.mascon);
@@ -428,14 +451,14 @@ async function sendLatestNotch() {
 		notchSending = false;
 	}
 }
-function requestNotch(value) {
+function requestNotch(value, force = false) {
 	if (!owned || !online) return;
 	value = Math.max(
 		Number($("mascon").min),
 		Math.min(Number($("mascon").max), value),
 	);
 	const selected = document.querySelector("#notch-scale span.selected");
-	if (selected && value === Number(selected.dataset.notch)) return;
+	if (!force && selected && value === Number(selected.dataset.notch)) return;
 	$("mascon").value = value;
 	setNotchBadge(value);
 	notchWanted = value;
@@ -495,6 +518,8 @@ $("mascon").addEventListener("pointerdown", (e) => {
 	masconDrag = { pointerId: e.pointerId, offsetY: onHandle ? e.clientY - centerY : 0 };
 	$("notch-scale").classList.add("dragging");
 	$("mascon").setPointerCapture(e.pointerId);
+	if (bluetooth.consist?.state === "active" && (onHandle || (e.clientY >= r.top && e.clientY <= r.bottom)))
+		requestNotch(Number($("mascon").value), true);
 	// Grabbing any part of the handle keeps its notch until the mouse moves.
 	if (!onHandle) pointerNotch(e);
 });
@@ -538,7 +563,7 @@ $("release-control").addEventListener("click", async () => {
 });
 window.addEventListener("keydown", (e) => {
 	if (
-		waveDialog.open ||
+		waveDialog.open || consistDialog.open ||
 		!owned ||
 		["SELECT", "TEXTAREA"].includes(document.activeElement?.tagName)
 	)
@@ -550,10 +575,11 @@ window.addEventListener("keydown", (e) => {
 			neutral
 				? 0
 				: Number($("mascon").value) + (e.key === "ArrowDown" ? 1 : -1),
+			bluetooth.consist?.state === "active",
 		);
 	}
 });
-window.addEventListener("pagehide", () => bluetooth.close());
+window.addEventListener("pagehide", () => {coupling.disconnected(); bluetooth.close();});
 let heartbeatPending = false;
 setInterval(async () => {
 	if (!online || heartbeatPending) return;
@@ -688,7 +714,7 @@ function draw() {
 $("connect-device").addEventListener("click", async () => {
 	$("connect-device").disabled = true;
 	try {
-		await bluetooth.connect();
+		await bluetooth.connect({choose: true});
 		message();
 	} catch (e) {
 		message(e.message);

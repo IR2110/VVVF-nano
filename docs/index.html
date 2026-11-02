@@ -5,7 +5,7 @@
 		<meta name="viewport" content="width=device-width,initial-scale=1" />
 		<title>VVVF nano Dashboard</title>
 		<link rel="icon" type="image/png" href="assets/icon.png" />
-		<link rel="stylesheet" href="style.css?v=20261102-pattern-levels" />
+		<link rel="stylesheet" href="style.css?v=20261102-consist" />
 		<script type="module" src="favicon.js"></script>
 	</head>
 	<body>
@@ -13,6 +13,10 @@
 			<p id="wave-question">波形を表示しますか？</p>
 			<p id="wave-description">波形は1つのデバイスにしか表示できません。</p>
 			<div><button id="wave-yes" autofocus>はい</button><button id="wave-no">いいえ</button></div>
+		</dialog>
+		<dialog id="consist-dialog" aria-labelledby="consist-question">
+			<p id="consist-question">違うVVVF nanoも接続済みです。併結しますか？</p>
+			<div><button id="consist-yes" autofocus>はい</button><button id="consist-no">いいえ</button></div>
 		</dialog>
 		<div id="stage">
 			<main id="console" class="stop">
@@ -141,6 +145,7 @@
 									↑ 回生側　↓ 力行側　Space 惰性
 								</p>
 								<p id="message" role="status"></p>
+								<p id="consist-status" role="status" hidden></p>
 							</section>
 							<div class="controller-label">マスコン</div>
 							<div class="operator-controls">
@@ -170,6 +175,6 @@
 				</section>
 			</main>
 		</div>
-		<script type="module" src="app.js?v=20261102-pattern-levels"></script>
+		<script type="module" src="app.js?v=20261102-consist"></script>
 	</body>
 </html>
